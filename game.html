@@ -375,6 +375,7 @@
             #touch-controls .touch-zone, #touch-controls .kick-btn { pointer-events:auto; -webkit-touch-callout:none; -webkit-user-select:none; }
             #controls-hint { display:none !important; }
             #chat-toggle { display:flex; }
+            * { backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
             #chat-overlay { display:none; }
             body.chat-open #chat-overlay { display:block; }
         }
@@ -824,6 +825,7 @@
                     o._dx += (o.x - o._dx) * smooth; o._dy += (o.y - o._dy) * smooth;
                     x = o._dx; y = o._dy;
                 }
+                o._rx = x; o._ry = y;
                 node.style.left = `${x}%`; node.style.top = `${y}%`;
             };
             if (ballNode) place(b, ballNode);
@@ -947,8 +949,9 @@
                     let raw = anchor;                                    // fare/joystick yoksa ok rakip kaleyi gösterir
                     if (touchAim.active) raw = touchAim.angle;
                     else if (aimMouse.seen) {
-                        const r = node.getBoundingClientRect();
-                        raw = Math.atan2(aimMouse.y - (r.top + r.height / 2), aimMouse.x - (r.left + r.width / 2));
+                        const sx = camTx + camZoom * ((p._rx !== undefined ? p._rx : p.x) / 100 * camW);
+                        const sy = camTy + camZoom * ((p._ry !== undefined ? p._ry : p.y) / 100 * camH);
+                        raw = Math.atan2(aimMouse.y - sy, aimMouse.x - sx);
                     }
                     const target = anchor + clamp(wrapAng(raw - anchor), -maxDev, maxDev);
                     myAimAng = myAimInit ? smoothAng(myAimAng, target, dt, 0.04) : target; myAimInit = true;
@@ -1121,6 +1124,7 @@
         const MAX_ZOOM = 1.4;
         const CAMERA_TAU = 0.32; // saniye cinsinden yumuşatma süresi — büyüdükçe kamera daha ağır/yumuşak geçer
         let camMidX = 50, camMidY = 50, camZoom = 1, camInited = false;
+        let camTx = 0, camTy = 0, camW = 1, camH = 1;   // son kamera dönüşümü (okun ekran konumunu DOM okumadan hesaplamak için)
 
         function updateCamera(dtSeconds) {
             const wrap = document.getElementById('pitch-wrap');
@@ -1150,6 +1154,7 @@
             const camY = (camMidY / 100) * rect.height;
             const tx = rect.width / 2 - camX * camZoom;
             const ty = rect.height / 2 - camY * camZoom;
+            camTx = tx; camTy = ty; camW = rect.width; camH = rect.height;
             document.getElementById('camera').style.transform = `translate(${tx}px, ${ty}px) scale(${camZoom})`;
         }
 
@@ -2660,11 +2665,8 @@
                 let steps = 0;
                 while (physicsAccumulatorMs >= PHYSICS_STEP_MS && steps < 5) {
                     stepPhysics();
-                    pushState();
-                    physicsAccumulatorMs -= PHYSICS_STEP_MS;
-                    steps++;
-                    if (!gameData.isMatchStarted) break;
-                }
+\1                }
+                if (steps > 0) pushState();          // yetişme adımlarında art arda yazmak yerine karede bir kez
             } else {
                 physicsAccumulatorMs = 0;
             }
