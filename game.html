@@ -375,6 +375,7 @@
             #touch-controls .touch-zone, #touch-controls .kick-btn { pointer-events:auto; -webkit-touch-callout:none; -webkit-user-select:none; }
             #controls-hint { display:none !important; }
             #chat-toggle { display:flex; }
+            * { backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
             #chat-overlay { display:none; }
             body.chat-open #chat-overlay { display:block; }
         }
@@ -812,18 +813,24 @@
 
         // Host: fizik adımları arasında enterpolasyon. Host olmayanlar: ağdan gelen hedef konuma
         // doğru üstel yumuşatma (20 Hz gelen veri 60 fps'te akıcı görünsün).
-        function renderEntities(alpha) {
+        function renderEntities(alpha, alphaMe) {
             const b = gameData.ball;
+            const predMe = predictedMe();
             const smooth = 0.3;
             const place = (o, node) => {
                 let x, y;
                 if (isHost) { x = lerp(o._px, o.x, alpha); y = lerp(o._py, o.y, alpha); }
-                else {
+                else if (o === predMe) {
+                    const a = alphaMe === undefined ? 1 : alphaMe;
+                    x = lerp(o._px, o.x, a); y = lerp(o._py, o.y, a);
+                    o._dx = x; o._dy = y;                          // tahmin bitince yumuşatma buradan devam etsin
+                } else {
                     if (o._dx === undefined) { o._dx = o.x; o._dy = o.y; }
                     if (Math.abs(o.x - o._dx) > 25 || Math.abs(o.y - o._dy) > 25) { o._dx = o.x; o._dy = o.y; }
                     o._dx += (o.x - o._dx) * smooth; o._dy += (o.y - o._dy) * smooth;
                     x = o._dx; y = o._dy;
                 }
+                o._rx = x; o._ry = y;
                 node.style.left = `${x}%`; node.style.top = `${y}%`;
             };
             if (ballNode) place(b, ballNode);
@@ -947,8 +954,9 @@
                     let raw = anchor;                                    // fare/joystick yoksa ok rakip kaleyi gösterir
                     if (touchAim.active) raw = touchAim.angle;
                     else if (aimMouse.seen) {
-                        const r = node.getBoundingClientRect();
-                        raw = Math.atan2(aimMouse.y - (r.top + r.height / 2), aimMouse.x - (r.left + r.width / 2));
+                        const sx = camTx + camZoom * ((p._rx !== undefined ? p._rx : p.x) / 100 * camW);
+                        const sy = camTy + camZoom * ((p._ry !== undefined ? p._ry : p.y) / 100 * camH);
+                        raw = Math.atan2(aimMouse.y - sy, aimMouse.x - sx);
                     }
                     const target = anchor + clamp(wrapAng(raw - anchor), -maxDev, maxDev);
                     myAimAng = myAimInit ? smoothAng(myAimAng, target, dt, 0.04) : target; myAimInit = true;
@@ -1074,6 +1082,57 @@
 
         // Sert vuruş — yön ağırlıklı olarak TOPUN OYUNCUYA GÖRE NEREDE olduğuna (temas noktası) bağlı,
         // bakış yönü sadece hafif düzeltir. Topa yandan/arkadan vurmak gücü düşürür. Sadece HOST çalıştırır.
+        // ==================== İSTEMCİ TARAFI TAHMİN (host olmayan oyuncunun kendi karakteri) ====================
+        // Karakter, host'tan cevap beklemeden AYNI hareket kuralıyla (applyMovement) 50 ms'lik adımlarla anında oynar.
+        // Host'tan her konum geldiğinde, gönderim gecikmesi kadar GERİDEKİ tahmin konumuyla karşılaştırılır; fark varsa
+        // (çarpışma vb.) yumuşakça düzeltilir, büyükse (ışınlanma/santra) anında eşitlenir.
+        function predictedMe() {
+            if (isHost || !humanPlayer || !gameData.isMatchStarted || phase !== 'playing') return null;
+            return teamOf(humanPlayer) ? humanPlayer : null;
+        }
+        function predictStep(me) {
+            me._px = me.x; me._py = me.y;
+            applyMovement(me, { w: keys.w, a: keys.a, s: keys.s, d: keys.d });
+            resolvePlayerPostCollisions([me]);
+            if (gameData.kickoffLock && netRestricted && netRestricted === teamOf(me)) {   // santra kısıtı host'taki gibi
+                const limitX = netRestricted === 'red' ? 49 : 51;
+                if (netRestricted === 'red' && me.x > limitX) me.x = limitX;
+                if (netRestricted === 'blue' && me.x < limitX) me.x = limitX;
+                if (realDist(me.x, me.y, 50, 50) < CENTER_CIRCLE_RADIUS) {
+                    const ang = Math.atan2((me.y - 50) / fieldAspect, me.x - 50);
+                    me.x = 50 + Math.cos(ang) * CENTER_CIRCLE_RADIUS;
+                    me.y = 50 + Math.sin(ang) * CENTER_CIRCLE_RADIUS * fieldAspect;
+                }
+            }
+            predHist.push({ t: performance.now(), x: me.x, y: me.y });
+            if (predHist.length > 60) predHist.shift();
+        }
+        function shiftPredicted(me, dx, dy) {
+            me.x += dx; me.y += dy; me._px += dx; me._py += dy;
+            for (let i = 0; i < predHist.length; i++) { predHist[i].x += dx; predHist[i].y += dy; }
+        }
+        function reconcileMe(me, sx, sy) {
+            // Host'tan gelen konum, girdimin host'a ulaşma + host adımı + geri dönüş süresi kadar eski bir anı gösterir
+            const hostQ = qData[hostUid];
+            const L = clamp((myRtt === null ? 60 : myRtt) + ((hostQ && hostQ.r) || 60) + 60, 80, 700);
+            const target = performance.now() - L;
+            let pp = null;
+            for (let i = predHist.length - 1; i >= 0; i--) {
+                if (predHist[i].t <= target) {
+                    const a = predHist[i], b = predHist[i + 1];
+                    pp = b ? { x: lerp(a.x, b.x, clamp((target - a.t) / Math.max(1, b.t - a.t), 0, 1)), y: lerp(a.y, b.y, clamp((target - a.t) / Math.max(1, b.t - a.t), 0, 1)) } : a;
+                    break;
+                }
+            }
+            if (!pp) { shiftPredicted(me, sx - me.x, sy - me.y); return; }         // tahmin yeni başladı: host konumunu al
+            const ex = sx - pp.x, ey = sy - pp.y;
+            if (Math.hypot(ex, ey / fieldAspect) > 9) {                             // büyük fark: ışınlanma/santra/yeniden diziliş
+                shiftPredicted(me, sx - me.x, sy - me.y); me.mvx = 0; me.mvy = 0;
+            } else {
+                shiftPredicted(me, ex * 0.3, ey * 0.3);                             // küçük fark: yumuşak düzeltme
+            }
+        }
+
         function performKick(player, aimField) {
             if (!gameData.isMatchStarted) return;
             const b = gameData.ball;
@@ -1121,6 +1180,7 @@
         const MAX_ZOOM = 1.4;
         const CAMERA_TAU = 0.32; // saniye cinsinden yumuşatma süresi — büyüdükçe kamera daha ağır/yumuşak geçer
         let camMidX = 50, camMidY = 50, camZoom = 1, camInited = false;
+        let camTx = 0, camTy = 0, camW = 1, camH = 1;   // son kamera dönüşümü (okun ekran konumunu DOM okumadan hesaplamak için)
 
         function updateCamera(dtSeconds) {
             const wrap = document.getElementById('pitch-wrap');
@@ -1150,6 +1210,7 @@
             const camY = (camMidY / 100) * rect.height;
             const tx = rect.width / 2 - camX * camZoom;
             const ty = rect.height / 2 - camY * camZoom;
+            camTx = tx; camTy = ty; camW = rect.width; camH = rect.height;
             document.getElementById('camera').style.transform = `translate(${tx}px, ${ty}px) scale(${camZoom})`;
         }
 
@@ -1680,6 +1741,13 @@
         const LOBBY = new URLSearchParams(location.search).get('room') === '2' ? BASE_LOBBY + '/room2' : BASE_LOBBY;
         let db = null, myUid = null, netError = null;
         let isHost = false, hostUid = null;
+        // Otomatik en iyi host: her oyuncu bağlantı kalitesini (RTT + kare süresi) yayınlar, host bağlantısı
+        // kötüleşirse ve başka biri belirgin şekilde daha iyiyse hosting meta/hostTarget ile devredilir.
+        let hostTarget = null, qData = {};
+        let avgFrameMs = 16.7, myRtt = null, lastHandoffAt = 0, badHostCount = 0;
+        // İstemci tarafı tahmin (host olmayan oyuncunun KENDİ karakteri): anında tepki verir, host'tan gelen konumla yumuşakça düzeltilir
+        let netRestricted = '', predAcc = 0;
+        const predHist = [];
         const netPlayers = {};      // uid -> oyuncu nesnesi (izleyiciler dahil herkes)
         const remoteInputs = {};    // uid -> son bildirilen tuşlar (sadece host okur)
         const IDLE_INPUT = { w: false, a: false, s: false, d: false, sp: 0 };
@@ -2009,13 +2077,16 @@
         }
 
         function becomeHost() {
+            // Eskiden guest iken yazdığım girdi kalıntısı silinsin (host olunca tuşlar sonsuza dek basılı görünmesin)
+            try { if (db && myUid) db.ref(`${LOBBY}/inputs/${myUid}`).remove(); } catch (e) {}
+            predHist.length = 0; predAcc = 0; badHostCount = 0; lastHandoffAt = Date.now() + serverOffset;
             if (inputsRef) inputsRef.off();
             inputsRef = db.ref(`${LOBBY}/inputs`);
-            inputsRef.on('value', s => {
-                const v = s.val() || {};
-                Object.keys(remoteInputs).forEach(k => delete remoteInputs[k]);
-                Object.assign(remoteInputs, v);
-            });
+            Object.keys(remoteInputs).forEach(k => delete remoteInputs[k]);
+            const onIn = sn => { remoteInputs[sn.key] = sn.val() || IDLE_INPUT; };
+            inputsRef.on('child_added', onIn);
+            inputsRef.on('child_changed', onIn);
+            inputsRef.on('child_removed', sn => { delete remoteInputs[sn.key]; });
             // Önceki host'un yarım kalan maçını devral (yoksa hostEvaluateMatch yeni maç kurar)
             if (lastState && ['playing', 'tactic', 'water'].includes(lastState.ph)) {
                 currentTeams = { red: (lastState.tr || []).slice(), blue: (lastState.tb || []).slice() };
@@ -2032,7 +2103,7 @@
             } else { phase = 'waiting'; gameData.isMatchStarted = false; }
             physicsAccumulatorMs = 0;
         }
-        function loseHost() { if (inputsRef) { inputsRef.off(); inputsRef = null; } }
+        function loseHost() { if (inputsRef) { inputsRef.off(); inputsRef = null; } lastSentKeys = ''; lastSentAim = null; predHist.length = 0; predAcc = 0; }
 
         // ---- HERKES: oda listesi / durum dinleyicileri ----
         function onRosterChange(obj) {
@@ -2046,13 +2117,23 @@
             Object.keys(netPlayers).forEach(uid => { if (!data[uid]) { delete netPlayers[uid]; delete remoteInputs[uid]; } });
             humanPlayer = netPlayers[myUid] || null;
 
+            refreshHostRole();
+        }
+
+        // Host: varsayılan en eski oyuncu; host bağlantı kalitesine göre başka birine devrettiyse (meta/hostTarget) o.
+        function electHost() {
             const sorted = Object.values(netPlayers).sort((a, b) => (a.joinedAt - b.joinedAt) || (a.uid < b.uid ? -1 : 1));
-            const newHost = sorted.length ? sorted[0].uid : null;
+            let newHost = sorted.length ? sorted[0].uid : null;
+            if (hostTarget && netPlayers[hostTarget]) newHost = hostTarget;
             const wasHost = isHost;
             hostUid = newHost; isHost = (newHost === myUid);
             if (isHost && !wasHost) becomeHost();
             if (!isHost && wasHost) loseHost();
-
+            // Hedef oyuncu odadan çıktıysa eski hedefi temizle
+            if (isHost && hostTarget && !netPlayers[hostTarget] && db) { hostTarget = null; db.ref(`${LOBBY}/meta/hostTarget`).remove(); }
+        }
+        function refreshHostRole() {
+            electHost();
             if (isHost) hostEvaluateMatch();
             // Takımlarda olmayanlar (yeni gelenler, yalnız bekleyen) izleyici listesine düşsün
             applyTeamsLocal();
@@ -2076,7 +2157,14 @@
             const b = gameData.ball;
             if (st.b) { b.x = st.b[0]; b.y = st.b[1]; }
             const pl = st.pl || {};
-            Object.keys(pl).forEach(uid => { const p = netPlayers[uid]; if (p) { p.x = pl[uid][0]; p.y = pl[uid][1]; } });
+            netRestricted = st.rc || '';
+            const predMe = predictedMe();
+            Object.keys(pl).forEach(uid => {
+                const p = netPlayers[uid];
+                if (!p) return;
+                if (p === predMe) reconcileMe(p, pl[uid][0], pl[uid][1]);
+                else { p.x = pl[uid][0]; p.y = pl[uid][1]; }
+            });
             b.holder = st.hb ? (netPlayers[st.hb] || null) : null;
             // Diğer oyuncuların space basışları: sayaç değiştiyse o oyuncunun etrafı parlar
             netAims = st.am || {};
@@ -2097,14 +2185,44 @@
             updateOverlay();
         }
 
+        // ---- OTOMATİK HOST DEVRİ ----
+        // Skor: düşük = iyi. RTT + (30 fps altı kare süresi cezası). Devir için host KÖTÜ olmalı (>110) ve aday belirgin iyi olmalı;
+        // 3 ardışık ölçümde (15 sn) doğrulanmalı ve devirler arası en az 90 sn olmalı (ping-pong olmasın).
+        function qScore(r, f) { return (r || 999) + Math.max(0, (f || 16.7) - 20) * 6; }
+        setInterval(() => {
+            if (!isHost || !db || !myUid) return;
+            const now = Date.now() + serverOffset;
+            if (now - lastHandoffAt < 90000) { badHostCount = 0; return; }
+            const mine = qScore(myRtt === null ? 60 : myRtt, avgFrameMs);
+            let best = null, bestScore = Infinity;
+            Object.keys(qData).forEach(uid => {
+                const q = qData[uid];
+                if (uid === myUid || !netPlayers[uid] || !q || !q.t || now - q.t > 15000) return;
+                const sc = qScore(q.r, q.f);
+                if (sc < bestScore) { bestScore = sc; best = uid; }
+            });
+            const bad = !!best && mine > 110 && bestScore < mine * 0.55 - 15;
+            badHostCount = bad ? badHostCount + 1 : 0;
+            if (badHostCount >= 3) {
+                badHostCount = 0; lastHandoffAt = now;
+                db.ref(`${LOBBY}/meta/hostTarget`).set(best);
+            }
+        }, 5000);
+
         // ---- GİRDİ GÖNDERİMİ (host olmayanlar) ----
-        let lastSentInput = '';
+        let lastSentKeys = '', lastSentAim = null, lastAimSendT = 0, lastSentAt = 0;
+        function sendInputNow() {
+            lastSentAim = myAimField; lastAimSendT = performance.now(); lastSentAt = lastAimSendT;
+            db.ref(`${LOBBY}/inputs/${myUid}`).set({ w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: lastSentAim });
+        }
         setInterval(() => {
             if (!db || !myUid || isHost) return;
-            const s = `${+keys.w}${+keys.a}${+keys.s}${+keys.d}|${keys.spaceSeq}|${myAimField}`;
-            if (s === lastSentInput) return;
-            lastSentInput = s;
-            db.ref(`${LOBBY}/inputs/${myUid}`).set({ w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: myAimField });
+            const k = `${+keys.w}${+keys.a}${+keys.s}${+keys.d}|${keys.spaceSeq}`;
+            const now = performance.now();
+            const aimMoved = lastSentAim === null || Math.abs(wrapAng(myAimField - lastSentAim)) > 0.07;   // ~4°'den küçük oynamalar gönderilmez
+            // Tuş değişimi ya da vuruş hemen gider; sadece nişan değiştiyse en fazla ~8 kez/sn
+            if (k !== lastSentKeys) { lastSentKeys = k; sendInputNow(); }
+            else if (aimMoved && now - lastAimSendT >= 120) sendInputNow();
         }, 33);
 
         // ---- BAĞLANTI ----
@@ -2123,12 +2241,24 @@
                     if (s.val() !== true) return;
                     meRef.onDisconnect().remove();
                     inRef.onDisconnect().remove();
+                    db.ref(`${LOBBY}/q/${myUid}`).onDisconnect().remove();
                     meRef.set({ name: savedUsername.slice(0, 20), joinedAt: firebase.database.ServerValue.TIMESTAMP });
                 });
-                window.addEventListener('pagehide', () => { meRef.remove(); inRef.remove(); });
+                window.addEventListener('pagehide', () => { meRef.remove(); inRef.remove(); db.ref(`${LOBBY}/q/${myUid}`).remove(); });
 
                 db.ref(`${LOBBY}/players`).on('value', s => onRosterChange(s.val()), err => fatal('Oda okunamadı: ' + err.message));
                 db.ref(`${LOBBY}/state`).on('value', s => onStateSnapshot(s.val()));
+                db.ref(`${LOBBY}/meta/hostTarget`).on('value', s => { hostTarget = s.val() || null; refreshHostRole(); });
+                db.ref(`${LOBBY}/q`).on('value', s => { qData = s.val() || {}; });
+                // Bağlantı kalitesi: set() onayının dönüş süresi = Firebase'e gerçek RTT. 4 sn'de bir yayınlanır.
+                const qRef = db.ref(`${LOBBY}/q/${myUid}`);
+                const publishQuality = () => {
+                    const t0 = performance.now();
+                    qRef.set({ r: Math.round(myRtt === null ? 60 : myRtt), f: Math.round(avgFrameMs * 10) / 10, t: Date.now() + serverOffset })
+                        .then(() => { const rtt = performance.now() - t0; myRtt = myRtt === null ? rtt : myRtt * 0.6 + rtt * 0.4; })
+                        .catch(() => {});
+                };
+                publishQuality(); setInterval(publishQuality, 4000);
                 const joinedAt = Date.now() + serverOffset;
                 db.ref(`${LOBBY}/chat`).orderByChild('t').limitToLast(25).on('child_added', s => {
                     const v = s.val();
@@ -2653,6 +2783,7 @@
             let delta = now - lastFrameTime;
             lastFrameTime = now;
             if (delta > 250) delta = 250;
+            avgFrameMs += (delta - avgFrameMs) * 0.05;       // host kalitesi ölçümü için ortalama kare süresi
 
             const simulating = isHost && gameData.isMatchStarted;
             if (simulating) {
@@ -2660,18 +2791,26 @@
                 let steps = 0;
                 while (physicsAccumulatorMs >= PHYSICS_STEP_MS && steps < 5) {
                     stepPhysics();
-                    pushState();
                     physicsAccumulatorMs -= PHYSICS_STEP_MS;
                     steps++;
                     if (!gameData.isMatchStarted) break;
                 }
+                if (steps > 0) pushState();          // yetişme adımlarında art arda yazmak yerine karede bir kez
             } else {
                 physicsAccumulatorMs = 0;
             }
 
+            const predMe = predictedMe();
+            if (predMe) {
+                predAcc += delta;
+                let pn = 0;
+                while (predAcc >= PHYSICS_STEP_MS && pn < 5) { predictStep(predMe); predAcc -= PHYSICS_STEP_MS; pn++; }
+            } else { predAcc = 0; if (predHist.length) predHist.length = 0; }
+            const alphaMe = predMe ? clamp(predAcc / PHYSICS_STEP_MS, 0, 1) : 1;
+
             const alpha = simulating ? clamp(physicsAccumulatorMs / PHYSICS_STEP_MS, 0, 1) : 1;
             updateCamera(delta / 1000);
-            renderEntities(alpha); updateAim(); renderRobots(alpha); renderObstacles(); renderDefenderBot(); renderShotMarkers(); updateRestartBanner();
+            renderEntities(alpha, alphaMe); updateAim(); renderRobots(alpha); renderObstacles(); renderDefenderBot(); renderShotMarkers(); updateRestartBanner();
         }
 
         // İLK YÜKLEME
