@@ -334,6 +334,9 @@
 
         #spec-toggle { position:fixed; left:12px; top:74px; z-index:41; font-size:10px; font-weight:800; letter-spacing:.5px; padding:5px 11px; border-radius:8px;
             background:rgba(2,6,10,.75); color:#cbd5e1; border:1.5px solid rgba(148,163,184,.45); cursor:pointer; }
+        #net-badge { position:fixed; left:12px; top:104px; z-index:41; font-size:10px; font-weight:800; padding:3px 9px; border-radius:7px; background:rgba(2,6,10,.75); color:#cbd5e1; border:1.5px solid rgba(148,163,184,.35); display:none; }
+        #net-badge.p2p { border-color:#22c55e; color:#86efac; } #net-badge.fb { border-color:#f59e0b; color:#fde68a; }
+        body.research-mode #net-badge { display:none !important; }
         #spec-toggle:hover { border-color:#f59e0b; color:#fde68a; }
         #spec-toggle.on { border-color:#22c55e; color:#86efac; }
         body.research-mode #spec-toggle { display:none !important; }
@@ -462,6 +465,7 @@
         </div>
     </div>
 
+    <div id="net-badge"></div>
     <button id="spec-toggle" onclick="toggleSpectate()" style="display:none">SEYİRCİYE GEÇ</button>
     <div id="role-badge" style="position:fixed;left:50%;top:74px;transform:translateX(-50%);z-index:39;font-size:11px;font-weight:800;padding:4px 14px;border-radius:6px;border:1.5px dashed rgba(148,163,184,0.6);background:rgba(2,6,10,0.7);color:#cbd5e1;display:none;"><i class="fa-solid fa-eye mr-1.5"></i>İZLEYİCİ MODU</div>
 
@@ -1123,7 +1127,8 @@
         function reconcileMe(me, sx, sy) {
             // Host'tan gelen konum, girdimin host'a ulaşma + host adımı + geri dönüş süresi kadar eski bir anı gösterir
             const hostQ = qData[hostUid];
-            const L = clamp((myRtt === null ? 60 : myRtt) + ((hostQ && hostQ.r) || 60) + 60, 80, 700);
+            const L = (guestUsingDc() && p2pRtt !== null) ? clamp(p2pRtt + 70, 60, 600)
+                : clamp((myRtt === null ? 60 : myRtt) + ((hostQ && hostQ.r) || 60) + 60, 80, 700);
             const target = performance.now() - L;
             let pp = null;
             for (let i = predHist.length - 1; i >= 0; i--) {
@@ -1896,6 +1901,17 @@
             b.innerHTML = wantSpec ? '<i class="fa-solid fa-gamepad mr-1.5"></i>OYUNA KATIL' : '<i class="fa-solid fa-eye mr-1.5"></i>SEYİRCİYE GEÇ';
             b.classList.toggle('on', wantSpec);
         }
+        setInterval(() => {                                     // bağlantı türü + gecikme göstergesi
+            const el = document.getElementById('net-badge');
+            if (!el) return;
+            if (!db || !myUid) { el.style.display = 'none'; return; }
+            el.style.display = 'block';
+            if (isHost) {
+                const open = Object.keys(peers).filter(u => peers[u].open).length, total = Math.max(0, Object.keys(netPlayers).length - 1);
+                el.className = open === total ? 'p2p' : 'fb'; el.textContent = total ? `HOST · P2P ${open}/${total}` : 'HOST';
+            } else if (guestUsingDc() && p2pRtt !== null) { el.className = 'p2p'; el.textContent = `⚡ P2P · ${Math.round(p2pRtt)} ms`; }
+            else { el.className = 'fb'; el.textContent = `☁ Sunucu · ${myRtt === null ? '…' : Math.round(myRtt) + ' ms'}`; }
+        }, 1000);
         function toggleSpectate() {
             if (!db || !myUid) return;
             wantSpec = !wantSpec;
@@ -2153,7 +2169,8 @@
             if (!isHost || !db) return;
             const b = gameData.ball, pl = {};
             [...gameData.red, ...gameData.blue].forEach(p => { pl[p.uid] = [r2(p.x), r2(p.y)]; });
-            db.ref(`${LOBBY}/state`).set({
+            const st = {
+                ep: hostEpoch, sq: ++stateSq,
                 h: myUid, ph: phase, id: matchId, cd: endCd,
                 b: [r2(b.x), r2(b.y)], hb: b.holder ? b.holder.uid : '',
                 pl, tr: currentTeams.red, tb: currentTeams.blue,
@@ -2162,20 +2179,22 @@
                 tl: breakLeft, bl: gameData.breakLabel || '', ot: gameData.overtime ? 1 : 0, kl: !!gameData.kickoffLock, rc: gameData.restrictedTeamColor || '',
                 co: !!gameData.rulesCornerOut,
                 rt: gameData.restart ? { k: gameData.restart.kind, t: gameData.restart.team } : null
-            });
+            };
+            broadcastState(st);
         }
 
         function becomeHost() {
             // Eskiden guest iken yazdığım girdi kalıntısı silinsin (host olunca tuşlar sonsuza dek basılı görünmesin)
             try { if (db && myUid) db.ref(`${LOBBY}/inputs/${myUid}`).remove(); } catch (e) {}
             predHist.length = 0; predAcc = 0; badHostCount = 0; lastHandoffAt = Date.now() + serverOffset;
+            hostEpoch = Date.now() + serverOffset; stateSq = 0; guestClose();   // artık ben host'um: P2P teklifleri ben yapacağım
             if (inputsRef) inputsRef.off();
             inputsRef = db.ref(`${LOBBY}/inputs`);
             Object.keys(remoteInputs).forEach(k => delete remoteInputs[k]);
-            const onIn = sn => { remoteInputs[sn.key] = sn.val() || IDLE_INPUT; };
+            const onIn = sn => { applyRemoteInput(sn.key, sn.val()); };
             inputsRef.on('child_added', onIn);
             inputsRef.on('child_changed', onIn);
-            inputsRef.on('child_removed', sn => { delete remoteInputs[sn.key]; });
+            inputsRef.on('child_removed', sn => { delete remoteInputs[sn.key]; delete lastInSeq[sn.key]; });
             // Önceki host'un yarım kalan maçını devral (yoksa hostEvaluateMatch yeni maç kurar)
             if (lastState && ['playing', 'tactic', 'water'].includes(lastState.ph)) {
                 currentTeams = { red: (lastState.tr || []).slice(), blue: (lastState.tb || []).slice() };
@@ -2192,7 +2211,7 @@
             } else { phase = 'waiting'; gameData.isMatchStarted = false; }
             physicsAccumulatorMs = 0;
         }
-        function loseHost() { if (inputsRef) { inputsRef.off(); inputsRef = null; } lastSentKeys = ''; lastSentAim = null; predHist.length = 0; predAcc = 0; }
+        function loseHost() { hostCloseAllPeers(); if (inputsRef) { inputsRef.off(); inputsRef = null; } lastSentKeys = ''; lastSentAim = null; predHist.length = 0; predAcc = 0; }
 
         // ---- HERKES: oda listesi / durum dinleyicileri ----
         function onRosterChange(obj) {
@@ -2213,7 +2232,7 @@
                 if (data[uid]) return;
                 const pp = netPlayers[uid];
                 departed[uid] = { name: pp.name, x: pp.x, y: pp.y, home: { x: pp.home.x, y: pp.home.y } };   // geri gelirse aynı yerden devam
-                delete netPlayers[uid]; delete remoteInputs[uid];
+                delete netPlayers[uid]; delete remoteInputs[uid]; delete lastInSeq[uid];
             });
             updateSpecButton();
             humanPlayer = netPlayers[myUid] || null;
@@ -2235,6 +2254,7 @@
         }
         function refreshHostRole() {
             electHost();
+            p2pHostSync();
             if (isHost) hostEvaluateMatch();
             // Takımlarda olmayanlar (yeni gelenler, yalnız bekleyen) izleyici listesine düşsün
             applyTeamsLocal();
@@ -2286,6 +2306,177 @@
             updateOverlay();
         }
 
+        // ==================== P2P (WebRTC) OYUN TRAFİĞİ ====================
+        // Oyun trafiği (tuşlar -> host, durum -> oyuncular) Firebase yerine doğrudan oyuncular arasındaki WebRTC
+        // veri kanalından gider: Google sunucusuna uğramaz, sıralı TCP yerine sıra/yeniden gönderim beklemeyen
+        // (unordered, maxRetransmits:0) kanal kullanılır -> HaxBall tarzı düşük gecikme. Firebase yalnızca
+        // bağlantıyı kurmak (signaling), oda listesi ve sohbet için kalır.
+        // Bağlanamayan oyuncular (sıkı NAT / bazı mobil hatlar) otomatik olarak eski Firebase yoluyla oynamaya devam eder.
+        // Kapatmak için: P2P_ENABLED = false
+        const P2P_ENABLED = true;
+        const RTC_PATH = BASE_LOBBY + '_rtc/' + (LOBBY === BASE_LOBBY ? 'main' : 'room2');
+        const RTC_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+        const peers = {};                         // HOST: uid -> { pc, dc, open, born, lastRx, tries, cid, ... }
+        const lastInSeq = {};                     // HOST: uid -> son kabul edilen girdi sırası (eski girdi yenisini ezmesin)
+        let hostEpoch = 0, stateSq = 0, lastFbStateWrite = 0;
+        let lastEp = -1, lastSq = -1;             // GUEST: kabul edilen son durum sırası (Firebase'den gelen eski durum P2P'yi ezmesin)
+        let gPc = null, gDc = null, gOpen = false, gCid = null, lastStateRx = 0, p2pRtt = null, inSeq = 0;
+        const gCand = {};                         // GUEST: cid -> host'tan gelen adaylar (teklif gelmeden önce gelebilir)
+        let lastDcSend = 0, lastDcAim = null, wasDc = false, lastPingSend = 0;
+        function rid() { return Math.random().toString(36).slice(2, 10); }
+        function nextN() { return Date.now() * 1000 + (inSeq++ % 1000); }
+        function p2pOn() { return P2P_ENABLED && typeof RTCPeerConnection !== 'undefined'; }
+
+        // ----- girdi sırası: aynı oyuncudan hem P2P hem Firebase girdisi gelebilir, eskisi yenisini ezemez -----
+        function applyRemoteInput(uid, inp) {
+            if (!inp) { remoteInputs[uid] = IDLE_INPUT; return; }
+            const n = Number(inp.n) || 0;
+            if (n && lastInSeq[uid] !== undefined && n < lastInSeq[uid]) return;
+            if (n) lastInSeq[uid] = n;
+            remoteInputs[uid] = { w: !!inp.w, a: !!inp.a, s: !!inp.s, d: !!inp.d, sp: Number(inp.sp) || 0, ma: inp.ma };
+        }
+
+        // ----- HOST tarafı -----
+        function p2pHostSync() {
+            if (!p2pOn() || !isHost || !db) return;
+            Object.keys(netPlayers).forEach(uid => { if (uid !== myUid && !peers[uid]) hostConnectPeer(uid, 0); });
+            Object.keys(peers).forEach(uid => { if (!netPlayers[uid]) hostClosePeer(uid); });
+        }
+        function hostConnectPeer(uid, tries) {
+            let pc;
+            try { pc = new RTCPeerConnection(RTC_CFG); } catch (e) { return; }
+            const cid = rid(), base = `${RTC_PATH}/${uid}`;
+            const e = peers[uid] = { pc, dc: null, open: false, born: performance.now(), lastRx: performance.now(), tries: (tries || 0) + 1, cid, pending: [], remoteSet: false, aRef: null, gRef: null };
+            const dc = pc.createDataChannel('g', { ordered: false, maxRetransmits: 0 });
+            e.dc = dc;
+            dc.onopen = () => { e.open = true; e.lastRx = performance.now(); };
+            dc.onclose = () => { e.open = false; };
+            dc.onmessage = ev => { e.lastRx = performance.now(); hostOnPeerMessage(uid, ev.data); };
+            pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') e.open = false; };
+            pc.onicecandidate = ev => { if (ev.candidate) db.ref(`${base}/hc/${rid()}`).set({ cid, c: ev.candidate.toJSON() }).catch(() => {}); };
+            const addCand = c => pc.addIceCandidate(c).catch(() => {});
+            // guest cevabı + guest adayları
+            e.aRef = db.ref(`${base}/answer`);
+            e.aRef.on('value', sn => {
+                const v = sn.val();
+                if (!v || v.cid !== cid || e.remoteSet || pc.signalingState !== 'have-local-offer') return;
+                e.remoteSet = true;
+                pc.setRemoteDescription({ type: 'answer', sdp: v.sdp }).then(() => { e.pending.forEach(addCand); e.pending = []; }).catch(() => {});
+            }, () => {});
+            e.gRef = db.ref(`${base}/gc`);
+            e.gRef.on('child_added', sn => {
+                const v = sn.val();
+                if (!v || v.cid !== cid) return;
+                if (e.remoteSet && pc.remoteDescription) addCand(v.c); else e.pending.push(v.c);
+            }, () => {});
+            // eski signaling kalıntısını temizle, sonra teklifi yaz
+            db.ref(base).remove().catch(() => {}).then(() => pc.createOffer())
+                .then(o => pc.setLocalDescription(o))
+                .then(() => db.ref(`${base}/offer`).set({ h: myUid, cid, type: 'offer', sdp: pc.localDescription.sdp }))
+                .catch(() => {});
+        }
+        function hostClosePeer(uid) {
+            const e = peers[uid];
+            if (!e) return;
+            delete peers[uid];
+            try { e.aRef && e.aRef.off(); e.gRef && e.gRef.off(); } catch (x) {}
+            try { e.dc && e.dc.close(); } catch (x) {}
+            try { e.pc && e.pc.close(); } catch (x) {}
+            if (db) db.ref(`${RTC_PATH}/${uid}`).remove().catch(() => {});
+        }
+        function hostCloseAllPeers() { Object.keys(peers).forEach(hostClosePeer); }
+        function hostOnPeerMessage(uid, data) {
+            let m; try { m = JSON.parse(data); } catch (x) { return; }
+            if (m.t === 'i') applyRemoteInput(uid, m);
+            else if (m.t === 'p') { const e = peers[uid]; if (e && e.dc && e.dc.readyState === 'open') { try { e.dc.send(JSON.stringify({ t: 'q', n: m.n })); } catch (x) {} } }
+        }
+        // Host: durumu açık P2P kanallarına anında gönder. Firebase'e yalnızca P2P'si olmayan oyuncu varsa tam hızda,
+        // yoksa yedek/geç katılan/araştırma paneli için seyrek (500 ms) yaz.
+        function broadcastState(st) {
+            let needFirebase = !p2pOn();
+            let msg = null;
+            if (!needFirebase) {
+                Object.keys(netPlayers).forEach(uid => {
+                    if (uid === myUid) return;
+                    const e = peers[uid];
+                    if (e && e.open && e.dc && e.dc.readyState === 'open') {
+                        if (e.dc.bufferedAmount > 65536) return;       // yavaş alıcıyı bekleme: bu kareyi atla
+                        if (msg === null) msg = JSON.stringify({ t: 's', st });
+                        try { e.dc.send(msg); } catch (x) { needFirebase = true; }
+                        if (performance.now() - e.lastRx > 1500) needFirebase = true;   // guest sessizleşti: yedek yolu da besle
+                    } else needFirebase = true;
+                });
+            }
+            const now = performance.now();
+            if (needFirebase || now - lastFbStateWrite > 500) { lastFbStateWrite = now; db.ref(`${LOBBY}/state`).set(st); }
+        }
+        setInterval(() => {                                     // ölü/yarım kalan bağlantıları yenile
+            if (!p2pOn() || !isHost) return;
+            const now = performance.now();
+            Object.keys(peers).forEach(uid => {
+                const e = peers[uid];
+                const dead = e.open ? (now - e.lastRx > 3500) : (now - e.born > 9000);
+                if (!dead) return;
+                const tries = e.tries;
+                hostClosePeer(uid);
+                if (netPlayers[uid] && tries < 5) hostConnectPeer(uid, tries);
+            });
+        }, 3000);
+
+        // ----- GUEST tarafı -----
+        function guestClose() {
+            gOpen = false; gCid = null; p2pRtt = null;
+            try { gDc && gDc.close(); } catch (x) {}
+            try { gPc && gPc.close(); } catch (x) {}
+            gDc = null; gPc = null;
+        }
+        function guestUsingDc() { return !isHost && gOpen && gDc && gDc.readyState === 'open' && (performance.now() - lastStateRx < 2000); }
+        function p2pGuestInit() {
+            if (!p2pOn()) return;
+            db.ref(`${RTC_PATH}/${myUid}/hc`).on('child_added', sn => {
+                const v = sn.val();
+                if (!v || !v.cid) return;
+                (gCand[v.cid] = gCand[v.cid] || []).push(v.c);
+                if (gPc && v.cid === gCid && gPc.remoteDescription) gPc.addIceCandidate(v.c).catch(() => {});
+            }, () => {});
+            db.ref(`${RTC_PATH}/${myUid}/offer`).on('value', sn => {
+                const v = sn.val();
+                if (v && v.cid && v.cid !== gCid && !isHost) guestHandleOffer(v);
+            }, () => {});
+        }
+        function guestHandleOffer(v) {
+            guestClose();
+            let pc;
+            try { pc = new RTCPeerConnection(RTC_CFG); } catch (e) { return; }
+            gPc = pc; gCid = v.cid;
+            pc.ondatachannel = ev => {
+                const dc = ev.channel; gDc = dc;
+                dc.onopen = () => { gOpen = true; lastStateRx = performance.now(); };
+                dc.onclose = () => { gOpen = false; };
+                dc.onmessage = m => { lastStateRx = performance.now(); guestOnMessage(m.data); };
+            };
+            pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') gOpen = false; };
+            pc.onicecandidate = ev => { if (ev.candidate) db.ref(`${RTC_PATH}/${myUid}/gc/${rid()}`).set({ cid: v.cid, c: ev.candidate.toJSON() }).catch(() => {}); };
+            pc.setRemoteDescription({ type: 'offer', sdp: v.sdp })
+                .then(() => { (gCand[v.cid] || []).forEach(c => pc.addIceCandidate(c).catch(() => {})); return pc.createAnswer(); })
+                .then(a => pc.setLocalDescription(a))
+                .then(() => db.ref(`${RTC_PATH}/${myUid}/answer`).set({ cid: v.cid, type: 'answer', sdp: pc.localDescription.sdp }))
+                .catch(() => {});
+        }
+        function guestOnMessage(data) {
+            let m; try { m = JSON.parse(data); } catch (x) { return; }
+            if (m.t === 's') acceptState(m.st);
+            else if (m.t === 'q') { const r = performance.now() - Number(m.n); if (r >= 0 && r < 5000) p2pRtt = p2pRtt === null ? r : p2pRtt * 0.7 + r * 0.3; }
+        }
+        // Durum hem P2P'den hem Firebase'den gelebilir: yalnızca daha YENİ olan uygulanır (host+epoch+sıra)
+        function acceptState(st) {
+            if (!st) { onStateSnapshot(st); return; }
+            if (isHost || st.ep === undefined) { onStateSnapshot(st); return; }
+            if (st.ep < lastEp || (st.ep === lastEp && st.sq <= lastSq)) return;
+            lastEp = st.ep; lastSq = st.sq;
+            onStateSnapshot(st);
+        }
+
         // ---- OTOMATİK HOST DEVRİ ----
         // Skor: düşük = iyi. RTT + (30 fps altı kare süresi cezası). Devir için host KÖTÜ olmalı (>110) ve aday belirgin iyi olmalı;
         // 3 ardışık ölçümde (15 sn) doğrulanmalı ve devirler arası en az 90 sn olmalı (ping-pong olmasın).
@@ -2314,17 +2505,29 @@
         let lastSentKeys = '', lastSentAim = null, lastAimSendT = 0, lastSentAt = 0;
         function sendInputNow() {
             lastSentAim = myAimField; lastAimSendT = performance.now(); lastSentAt = lastAimSendT;
-            db.ref(`${LOBBY}/inputs/${myUid}`).set({ w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: lastSentAim });
+            db.ref(`${LOBBY}/inputs/${myUid}`).set({ w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: lastSentAim, n: nextN() });
         }
         setInterval(() => {
             if (!db || !myUid || isHost) return;
             const k = `${+keys.w}${+keys.a}${+keys.s}${+keys.d}|${keys.spaceSeq}`;
             const now = performance.now();
+            if (guestUsingDc()) {
+                // P2P: tuş/vuruş değişince anında, nişan oynayınca sık, değişmese de 100 ms'de bir "hâlâ buradayım" (kayıp pakete karşı)
+                wasDc = true;
+                const aimMoved2 = lastDcAim === null || Math.abs(wrapAng(myAimField - lastDcAim)) > 0.03;
+                if (k !== lastSentKeys || aimMoved2 || now - lastDcSend >= 100) {
+                    lastSentKeys = k; lastDcAim = myAimField; lastDcSend = now;
+                    try { gDc.send(JSON.stringify({ t: 'i', w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: myAimField, n: nextN() })); } catch (x) {}
+                }
+                if (now - lastPingSend >= 1000) { lastPingSend = now; try { gDc.send(JSON.stringify({ t: 'p', n: now })); } catch (x) {} }
+                return;
+            }
+            if (wasDc) { wasDc = false; lastSentKeys = ''; lastSentAim = null; lastDcAim = null; }   // P2P koptu: Firebase'e geç, güncel tuşları hemen gönder
             const aimMoved = lastSentAim === null || Math.abs(wrapAng(myAimField - lastSentAim)) > 0.07;   // ~4°'den küçük oynamalar gönderilmez
             // Tuş değişimi ya da vuruş hemen gider; sadece nişan değiştiyse en fazla ~8 kez/sn
             if (k !== lastSentKeys) { lastSentKeys = k; sendInputNow(); }
             else if (aimMoved && now - lastAimSendT >= 120) sendInputNow();
-        }, 33);
+        }, 16);
 
         // ---- BAĞLANTI ----
         function initNetwork() {
@@ -2343,6 +2546,7 @@
                     meRef.onDisconnect().remove();
                     inRef.onDisconnect().remove();
                     db.ref(`${LOBBY}/q/${myUid}`).onDisconnect().remove();
+                    if (p2pOn()) db.ref(`${RTC_PATH}/${myUid}`).onDisconnect().remove();
                     const me0 = { name: savedUsername.slice(0, 20), joinedAt: myJoinedAt !== null ? myJoinedAt : firebase.database.ServerValue.TIMESTAMP };
                     if (wantSpec) me0.sp = true;
                     meRef.set(me0);   // yeniden bağlanınca eski giriş zamanı korunur (host sırası/kıdem bozulmaz)
@@ -2350,7 +2554,8 @@
                 window.addEventListener('pagehide', () => { meRef.remove(); inRef.remove(); db.ref(`${LOBBY}/q/${myUid}`).remove(); });
 
                 db.ref(`${LOBBY}/players`).on('value', s => onRosterChange(s.val()), err => fatal('Oda okunamadı: ' + err.message));
-                db.ref(`${LOBBY}/state`).on('value', s => onStateSnapshot(s.val()));
+                db.ref(`${LOBBY}/state`).on('value', s => acceptState(s.val()));
+                p2pGuestInit();
                 db.ref(`${LOBBY}/meta/hostTarget`).on('value', s => { hostTarget = s.val() || null; refreshHostRole(); });
                 db.ref(`${LOBBY}/q`).on('value', s => { qData = s.val() || {}; });
                 // Bağlantı kalitesi: set() onayının dönüş süresi = Firebase'e gerçek RTT. 4 sn'de bir yayınlanır.
