@@ -332,6 +332,12 @@
         .roster-card-blue { border-left-color: #3b82f6; }
         .roster-card-spec { border-left-color: #94a3b8; }
 
+        #spec-toggle { position:fixed; left:12px; top:74px; z-index:41; font-size:10px; font-weight:800; letter-spacing:.5px; padding:5px 11px; border-radius:8px;
+            background:rgba(2,6,10,.75); color:#cbd5e1; border:1.5px solid rgba(148,163,184,.45); cursor:pointer; }
+        #spec-toggle:hover { border-color:#f59e0b; color:#fde68a; }
+        #spec-toggle.on { border-color:#22c55e; color:#86efac; }
+        body.research-mode #spec-toggle { display:none !important; }
+
         /* ==================== NİŞAN OKU ==================== */
         .aim-arrow { position:absolute; width:0; height:0; z-index:14; pointer-events:none; display:none; transform-origin:0 0; }
         .aim-arrow svg { position:absolute; left:19px; top:-10px; overflow:visible; filter:drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
@@ -456,6 +462,7 @@
         </div>
     </div>
 
+    <button id="spec-toggle" onclick="toggleSpectate()" style="display:none">SEYİRCİYE GEÇ</button>
     <div id="role-badge" style="position:fixed;left:50%;top:74px;transform:translateX(-50%);z-index:39;font-size:11px;font-weight:800;padding:4px 14px;border-radius:6px;border:1.5px dashed rgba(148,163,184,0.6);background:rgba(2,6,10,0.7);color:#cbd5e1;display:none;"><i class="fa-solid fa-eye mr-1.5"></i>İZLEYİCİ MODU</div>
 
     <div id="break-banner"></div>
@@ -706,7 +713,9 @@
         const SHOT_SPEED = 2.7;
         const BOT_PASS_SPEED = 1.4;
         const BOT_SHOT_SPEED = 2.0;
-        const MATCH_LIMIT_S = 180, WATER_AT_S = 60, BREAK_S = 60;   // maç 3 dk, 1. dk'da su molası, mola 1 dk
+        const MATCH_LIMIT_S = 180, WATER_AT_S = 120, BREAK_S = 60;  // su molası 2. dakikada, mola 1 dk
+        const REJOIN_GRACE_S = 30;    // maçtaki bir oyuncu koparsa slotu bu kadar saniye onun için saklanır (geri gelirse maç/skor/takımlar aynen devam)
+        const REJOIN_PAUSE_S = 10;    // geri dönünce oyun bu kadar saniye durur (ya da zaten moladaysa mola bu kadar uzar)
         const GOAL_DEPTH = 3.2;                                     // kale ağının derinliği
         const ROBOT_R = 1.55, ROBOT_X = 5.5, ROBOT_SPEED = 0.34;    // antrenman kalecileri (sade tasarım)
         const ROBOT_SPEED_MAX = 0.5, ROBOT_SPEED_STEP = 0.015; // her golde biraz daha hızlı (zorluk artışı)
@@ -1653,7 +1662,7 @@
         function matchBadgeText() {
             if (phase === 'training') return 'ANTRENMAN';
             if (phase === 'tactic') return 'TAKTİK';
-            if (phase === 'water') return 'SU MOLASI';
+            if (phase === 'water') return gameData.breakLabel === 'rejoin' ? 'DURAKLADI' : 'SU MOLASI';
             if (gameData.overtime) return 'UZATMA';
             return gameData.red.length ? `${gameData.red.length}v${gameData.blue.length} CANLI` : 'BEKLİYOR';
         }
@@ -1663,8 +1672,8 @@
                 ? ['Kim öne çıkıp baskı yapacak, kim geride kalacak?', 'Rakibin en tehlikeli oyuncusunu kim markajda tutacak?', 'Gol yersek/atarsak toparlanma planınız ne?']
                 : ['Skora göre taktik değişikliği gerekiyor mu?', 'Kim yoruldu, pozisyon değiştirelim mi?', 'Rakibin zayıf noktası ne oldu şimdiye kadar?'];
         }
-        function beginBreak(secs, kind, silent) {
-            clearBreak(); phase = kind; gameData.isMatchStarted = false; breakLeft = secs;
+        function beginBreak(secs, kind, silent, label) {
+            clearBreak(); phase = kind; gameData.isMatchStarted = false; breakLeft = secs; gameData.breakLabel = label || '';
             gameData.breakVotes = {}; gameData.myVotedSkip = false;
             if (db) db.ref(`${LOBBY}/breakVotes`).remove();
             if (!silent) {
@@ -1673,7 +1682,7 @@
                     : '💧 SU MOLASI (1 dk): oyun durdu. Nefeslenin ve hızlıca konuşun — skora göre taktik değişikliği gerekiyor mu, kim yoruldu? Mesajlar SADECE takımına görünür.';
                 sysChat(msg, 'text-emerald-400');
             }
-            logEvent('break_start', { kind, name: kind === 'tactic' ? 'Taktik molası' : 'Su molası' });
+            logEvent('break_start', { kind, name: label === 'rejoin' ? 'Yeniden bağlanma duraklaması' : (kind === 'tactic' ? 'Taktik molası' : 'Su molası') });
             updateOverlay(); pushState();
             breakTimer = setInterval(() => {
                 if (!isHost) { clearBreak(); return; }
@@ -1682,14 +1691,15 @@
             }, 1000);
         }
         function resumeAfterBreak(skippedByVote) {
-            const wasTactic = phase === 'tactic';
+            const wasTactic = phase === 'tactic', wasRejoin = gameData.breakLabel === 'rejoin';
+            gameData.breakLabel = '';
             phase = 'playing'; gameData.isMatchStarted = true; breakLeft = 0;
             gameData.breakVotes = {}; gameData.myVotedSkip = false;
             if (db) db.ref(`${LOBBY}/breakVotes`).remove();
             [...gameData.red, ...gameData.blue].forEach(p => { p.mvx = 0; p.mvy = 0; p._lastSp = p.isMe ? keys.spaceSeq : ((remoteInputs[p.uid] || IDLE_INPUT).sp || 0); });
             if (wasTactic) resetBall();
             physicsAccumulatorMs = 0; playStartWhistle();
-            if (!skippedByVote) sysChat(wasTactic ? '🟢 Mola bitti — MAÇ BAŞLADI!' : '🟢 Su molası bitti, oyun devam ediyor!', 'text-emerald-400');
+            if (!skippedByVote) sysChat(wasTactic ? '🟢 Mola bitti — MAÇ BAŞLADI!' : (wasRejoin ? '🟢 Oyun devam ediyor!' : '🟢 Su molası bitti, oyun devam ediyor!'), 'text-emerald-400');
             logEvent('break_end', { kind: wasTactic ? 'tactic' : 'water', detail: skippedByVote ? 'oyla erken bitirildi' : '' });
             updateOverlay(); pushState();
         }
@@ -1714,15 +1724,15 @@
             el.style.display = inBreak ? 'block' : 'none';
             if (inBreak) {
                 const tips = breakTips(phase);
-                const tipsHtml = mine !== 'spec' ? `<ul>${tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '';
+                const tipsHtml = (mine !== 'spec' && gameData.breakLabel !== 'rejoin') ? `<ul>${tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '';
                 const matchPlayers = [...gameData.red, ...gameData.blue];
                 const votedCount = matchPlayers.filter(p => gameData.breakVotes[p.uid]).length;
                 const voteHtml = mine !== 'spec' ? `
                     <button class="break-skip-btn${gameData.myVotedSkip ? ' voted' : ''}" onclick="toggleSkipVote()">
                         ${gameData.myVotedSkip ? '✅ Oy verdin' : '⏭ Molayı Atla'} (${votedCount}/${matchPlayers.length})
                     </button>` : '';
-                el.innerHTML = `<div>${phase === 'tactic' ? '🧠 TAKTİK MOLASI' : '💧 SU MOLASI'} · <b>${formatTime(Math.max(0, breakLeft))}</b></div>
-                    <div style="font-size:9.5px;font-weight:600;opacity:.85;margin-top:3px">${mine === 'spec' ? 'İzleyici sohbeti — mesajlar sadece izleyicilere görünür' : 'Mesajlar sadece takımına görünür — konuşun:'}</div>
+                el.innerHTML = `<div>${phase === 'tactic' ? '🧠 TAKTİK MOLASI' : (gameData.breakLabel === 'rejoin' ? '🔄 OYUNCU GERİ DÖNDÜ · OYUN DEVAM EDECEK' : '💧 SU MOLASI')} · <b>${formatTime(Math.max(0, breakLeft))}</b></div>
+                    <div style="font-size:9.5px;font-weight:600;opacity:.85;margin-top:3px">${mine === 'spec' ? 'İzleyici sohbeti — mesajlar sadece izleyicilere görünür' : (gameData.breakLabel === 'rejoin' ? 'Maç ve skor korunuyor.' : 'Mesajlar sadece takımına görünür — konuşun:')}</div>
                     ${tipsHtml}${voteHtml}`;
             }
             const h = document.querySelector('.chat-heading');
@@ -1748,6 +1758,10 @@
         // İstemci tarafı tahmin (host olmayan oyuncunun KENDİ karakteri): anında tepki verir, host'tan gelen konumla yumuşakça düzeltilir
         let netRestricted = '', predAcc = 0;
         const predHist = [];
+        // Kopan oyuncuyu bekleme (host) + isteğe bağlı seyirci modu
+        const graceUntil = {};     // uid -> slotun saklandığı son an (ms)
+        const departed = {};       // uid -> ayrılırken konumu (geri gelince aynı yerden devam)
+        let graceTimer = null, wantSpec = false, myJoinedAt = null;
         const netPlayers = {};      // uid -> oyuncu nesnesi (izleyiciler dahil herkes)
         const remoteInputs = {};    // uid -> son bildirilen tuşlar (sadece host okur)
         const IDLE_INPUT = { w: false, a: false, s: false, d: false, sp: 0 };
@@ -1820,7 +1834,7 @@
             const input = document.getElementById('chat-input');
             const v = input.value.trim();
             if (!v) return;
-            if (db && myUid) { const br = phase === 'tactic' || phase === 'water'; pushChat(savedUsername, v, 'text-amber-200', br && humanPlayer ? (teamOf(humanPlayer) || 'spec') : null, myUid); } else addChatMessage(savedUsername, v, 'text-amber-200');
+            if (db && myUid) { const br = (phase === 'tactic' || phase === 'water') && gameData.breakLabel !== 'rejoin'; pushChat(savedUsername, v, 'text-amber-200', br && humanPlayer ? (teamOf(humanPlayer) || 'spec') : null, myUid); } else addChatMessage(savedUsername, v, 'text-amber-200');
             input.value = '';
         }
         function toggleRoster(show) { document.getElementById('roster-backdrop').classList.toggle('active', show); }
@@ -1875,6 +1889,20 @@
             badge.innerHTML = '<i class="fa-solid fa-eye mr-1.5"></i>İZLEYİCİ MODU';
             badge.style.display = spectating ? 'block' : 'none';
         }
+        function updateSpecButton() {
+            const b = document.getElementById('spec-toggle');
+            if (!b) return;
+            b.style.display = (db && myUid) ? 'block' : 'none';
+            b.innerHTML = wantSpec ? '<i class="fa-solid fa-gamepad mr-1.5"></i>OYUNA KATIL' : '<i class="fa-solid fa-eye mr-1.5"></i>SEYİRCİYE GEÇ';
+            b.classList.toggle('on', wantSpec);
+        }
+        function toggleSpectate() {
+            if (!db || !myUid) return;
+            wantSpec = !wantSpec;
+            db.ref(`${LOBBY}/players/${myUid}/sp`).set(wantSpec ? true : null).catch(() => { wantSpec = !wantSpec; updateSpecButton(); });
+            updateSpecButton();
+            addChatMessage('Sistem', wantSpec ? '👁 Seyirciye geçtin: maça girmeyeceksin, istediğin an "OYUNA KATIL" ile dönebilirsin.' : '🎮 Oyuna katılmak istedin: yer açılınca ya da yeni maç kurulunca sıraya girersin.', 'text-emerald-400');
+        }
         function fatal(msg) { netError = msg; updateOverlay(); addChatMessage('Sistem', msg, 'text-amber-400'); }
 
         // ---- TAKIM KURULUMU ----
@@ -1917,16 +1945,77 @@
 
         // ---- HOST: eşleştirme + maç yönetimi ----
         function hostEvaluateMatch() {
-            const n = Object.keys(netPlayers).length;
-            const size = modeSize(n);
-            if (size === 0 && n === 0) { if (phase !== 'waiting' || gameData.isMatchStarted) toWaiting(); return; }
+            const all = Object.values(netPlayers);
+            if (!all.length) { Object.keys(graceUntil).forEach(k => delete graceUntil[k]); if (phase !== 'waiting' || gameData.isMatchStarted) toWaiting(); return; }
             if (phase === 'ended') return; // geri sayım bitince kendisi başlatır
+            const now = Date.now();
+            const inMatch = ['playing', 'tactic', 'water'].includes(phase);
+            let active = [...currentTeams.red, ...currentTeams.blue];
+
+            // --- Kopan oyuncu: slotu REJOIN_GRACE_S sn saklanır; geri gelirse maç/skor/takımlar DEĞİŞMEZ ---
+            Object.keys(graceUntil).forEach(u => { if (!inMatch || !active.includes(u)) delete graceUntil[u]; });
+            const returned = active.filter(u => graceUntil[u] && netPlayers[u]);
+            returned.forEach(u => delete graceUntil[u]);
+            const missing = inMatch ? active.filter(u => !netPlayers[u]) : [];
+            missing.forEach(u => { if (!graceUntil[u]) graceUntil[u] = now + REJOIN_GRACE_S * 1000; });
+            const expired = missing.filter(u => graceUntil[u] <= now);
+            const pending = missing.filter(u => graceUntil[u] > now);
+            const toSpec = inMatch ? active.filter(u => netPlayers[u] && netPlayers[u].wantsSpec) : [];   // seyirciye geçenler
+
+            // --- Slot boşaldıysa ve bekleyen oyuncu varsa: maçı bozmadan yedek girsin ---
+            let lost = [...expired, ...toSpec];
+            if (lost.length) {
+                const waiting = all.filter(p => !p.wantsSpec && !active.includes(p.uid)).sort((x, y) => x.joinedAt - y.joinedAt);
+                if (waiting.length >= lost.length) {
+                    lost.forEach(u => substituteSlot(u, waiting.shift()));
+                    active = [...currentTeams.red, ...currentTeams.blue]; lost = [];
+                }
+            }
+            const elig = all.filter(p => !p.wantsSpec);
+            if (elig.length === 0) { if (phase !== 'waiting' || gameData.isMatchStarted) toWaiting(); return; }
+            if (lost.length) {                                   // yedek yok: takımlar yeniden kurulur (eski davranış)
+                lost.forEach(u => delete graceUntil[u]);
+                if (elig.length === 1) startTraining(); else startMatch();
+                return;
+            }
+            if (returned.length && inMatch) rejoinPause(returned);
+            if (pending.length) { scheduleGraceCheck(); return; }   // bekleniyor: maç aynen devam
+
             // Odada tek kişi varsa rakip beklerken TEK BAŞINA ANTRENMAN yapabilir
-            if (n === 1) { if (phase !== 'training' || !currentTeams.red.length) startTraining(); return; }
-            const active = [...currentTeams.red, ...currentTeams.blue];
-            const allPresent = active.every(u => netPlayers[u]);
-            // Mod değiştiyse (ör. 3→4 kişi) ya da aktif oyunculardan biri çıktıysa takımları yeniden kur.
+            if (elig.length === 1) { if (phase !== 'training' || !currentTeams.red.length || currentTeams.red[0] !== elig[0].uid) startTraining(); return; }
+            const size = modeSize(elig.length);
+            const allPresent = active.every(u => netPlayers[u] && !netPlayers[u].wantsSpec);
+            // Mod değiştiyse (ör. 3→4 kişi) ya da aktif oyunculardan biri kalıcı çıktıysa takımları yeniden kur.
             if (phase === 'waiting' || !allPresent || active.length !== size * 2) startMatch();
+        }
+        function scheduleGraceCheck() {
+            if (graceTimer) clearTimeout(graceTimer);
+            const next = Math.min(...Object.values(graceUntil));
+            graceTimer = setTimeout(() => { graceTimer = null; if (isHost) refreshHostRole(); }, Math.max(200, next - Date.now() + 150));
+        }
+        function rejoinPause(uids) {
+            const names = uids.map(u => (netPlayers[u] || {}).name || '?').join(', ');
+            if (phase === 'playing') {
+                sysChat(`🔄 ${names} geri döndü — maç ve skor korunuyor, oyun ${REJOIN_PAUSE_S} sn sonra devam edecek.`, 'text-emerald-400');
+                beginBreak(REJOIN_PAUSE_S, 'water', true, 'rejoin');
+            } else {   // zaten moladaysa mola sadece uzar
+                breakLeft += REJOIN_PAUSE_S;
+                sysChat(`🔄 ${names} geri döndü — mola ${REJOIN_PAUSE_S} sn uzatıldı.`, 'text-emerald-400');
+                pushState(); updateBreakUI();
+            }
+        }
+        function substituteSlot(lostUid, sub) {
+            const team = currentTeams.red.includes(lostUid) ? 'red' : 'blue';
+            const idx = currentTeams[team].indexOf(lostUid);
+            const old = netPlayers[lostUid] || departed[lostUid] || null;
+            currentTeams[team][idx] = sub.uid;
+            delete graceUntil[lostUid];
+            if (old && old.home) { sub.x = old.home.x; sub.y = old.home.y; sub.home = { x: old.home.x, y: old.home.y }; }
+            sub._px = sub.x; sub._py = sub.y; sub._dx = undefined; sub._dy = undefined; sub.mvx = 0; sub.mvy = 0;
+            sub._lastSp = sub.isMe ? keys.spaceSeq : ((remoteInputs[sub.uid] || IDLE_INPUT).sp || 0);
+            sysChat(`🔁 ${old && old.name ? old.name : 'Bir oyuncu'} yerine ${sub.name} oyuna girdi (maç ve skor korunuyor).`, 'text-emerald-400');
+            logEvent('substitute', { name: sub.name, team });
+            applyTeamsLocal(); pushState();
         }
 
         function toWaiting() {
@@ -1939,7 +2028,7 @@
 
         function startTraining() {
             clearBreak(); gameData.overtime = false; initRobots(); initTrainingExtras();
-            const me = Object.values(netPlayers)[0];
+            const me = Object.values(netPlayers).find(p => !p.wantsSpec);
             if (!me) return toWaiting();
             if (endTimer) { clearInterval(endTimer); endTimer = null; }
             currentTeams = { red: [me.uid], blue: [] };
@@ -1958,7 +2047,7 @@
 
         function startMatch() {
             clearBreak(); gameData.overtime = false; gameData.waterDone = false; matchElapsedMs = 0;
-            const all = shuffleCopy(Object.values(netPlayers));
+            const all = shuffleCopy(Object.values(netPlayers).filter(p => !p.wantsSpec));
             const size = modeSize(all.length);
             if (!size) return toWaiting();
             if (endTimer) { clearInterval(endTimer); endTimer = null; }
@@ -2070,7 +2159,7 @@
                 pl, tr: currentTeams.red, tb: currentTeams.blue,
                 rs: redScore, bs: blueScore, ks: kickSeqMap(), am: aimMap(),
                 mt: ['playing', 'tactic', 'water'].includes(phase) ? Math.floor(matchElapsedMs / 1000) : 0,
-                tl: breakLeft, ot: gameData.overtime ? 1 : 0, kl: !!gameData.kickoffLock, rc: gameData.restrictedTeamColor || '',
+                tl: breakLeft, bl: gameData.breakLabel || '', ot: gameData.overtime ? 1 : 0, kl: !!gameData.kickoffLock, rc: gameData.restrictedTeamColor || '',
                 co: !!gameData.rulesCornerOut,
                 rt: gameData.restart ? { k: gameData.restart.kind, t: gameData.restart.team } : null
             });
@@ -2095,7 +2184,7 @@
                 matchStartTs = Date.now() - (lastState.mt || 0) * 1000;
                 matchElapsedMs = (lastState.mt || 0) * 1000; gameData.overtime = !!lastState.ot;
                 gameData.waterDone = matchElapsedMs >= WATER_AT_S * 1000 || lastState.ph === 'water';
-                if (lastState.ph !== 'playing') beginBreak(lastState.tl || 10, lastState.ph, true);
+                if (lastState.ph !== 'playing') beginBreak(lastState.tl || 10, lastState.ph, true, lastState.bl || '');
                 setScoreUI(lastState.rs || 0, lastState.bs || 0);
                 applyTeamsLocal();
                 [...gameData.red, ...gameData.blue].forEach(p => { p._lastSp = p.isMe ? keys.spaceSeq : ((remoteInputs[p.uid] || IDLE_INPUT).sp || 0); p._px = p.x; p._py = p.y; });
@@ -2110,11 +2199,23 @@
             const data = obj || {};
             Object.keys(data).forEach(uid => {
                 const v = data[uid] || {};
-                if (!netPlayers[uid]) netPlayers[uid] = makePlayer(uid, 'Oyuncu');
+                if (!netPlayers[uid]) {
+                    const np = makePlayer(uid, 'Oyuncu'), d = departed[uid];
+                    if (d) { np.x = d.x; np.y = d.y; np._px = d.x; np._py = d.y; np.home = { x: d.home.x, y: d.home.y }; delete departed[uid]; }
+                    netPlayers[uid] = np;
+                }
+                netPlayers[uid].wantsSpec = !!v.sp;
                 netPlayers[uid].name = String(v.name || 'Oyuncu').slice(0, 20);
                 netPlayers[uid].joinedAt = Number(v.joinedAt) || 0;
             });
-            Object.keys(netPlayers).forEach(uid => { if (!data[uid]) { delete netPlayers[uid]; delete remoteInputs[uid]; } });
+            if (data[myUid] && myJoinedAt === null && Number(data[myUid].joinedAt)) myJoinedAt = Number(data[myUid].joinedAt);
+            Object.keys(netPlayers).forEach(uid => {
+                if (data[uid]) return;
+                const pp = netPlayers[uid];
+                departed[uid] = { name: pp.name, x: pp.x, y: pp.y, home: { x: pp.home.x, y: pp.home.y } };   // geri gelirse aynı yerden devam
+                delete netPlayers[uid]; delete remoteInputs[uid];
+            });
+            updateSpecButton();
             humanPlayer = netPlayers[myUid] || null;
 
             refreshHostRole();
@@ -2153,7 +2254,7 @@
                 gameData.ball._dx = undefined;
             }
             gameData.isMatchStarted = (phase === 'playing');
-            gameData.overtime = !!st.ot; breakLeft = st.tl || 0;
+            gameData.overtime = !!st.ot; breakLeft = st.tl || 0; gameData.breakLabel = st.bl || '';
             const b = gameData.ball;
             if (st.b) { b.x = st.b[0]; b.y = st.b[1]; }
             const pl = st.pl || {};
@@ -2242,7 +2343,9 @@
                     meRef.onDisconnect().remove();
                     inRef.onDisconnect().remove();
                     db.ref(`${LOBBY}/q/${myUid}`).onDisconnect().remove();
-                    meRef.set({ name: savedUsername.slice(0, 20), joinedAt: firebase.database.ServerValue.TIMESTAMP });
+                    const me0 = { name: savedUsername.slice(0, 20), joinedAt: myJoinedAt !== null ? myJoinedAt : firebase.database.ServerValue.TIMESTAMP };
+                    if (wantSpec) me0.sp = true;
+                    meRef.set(me0);   // yeniden bağlanınca eski giriş zamanı korunur (host sırası/kıdem bozulmaz)
                 });
                 window.addEventListener('pagehide', () => { meRef.remove(); inRef.remove(); db.ref(`${LOBBY}/q/${myUid}`).remove(); });
 
