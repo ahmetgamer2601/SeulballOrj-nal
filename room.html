@@ -186,11 +186,13 @@
         // Oda yolları (game.html ile aynı kural): ?room=2 ikinci odayı açar
         const LOBBY_1 = window.SEULBALL_LOBBY || 'quickmatch';
         const LOBBY_2 = LOBBY_1 + '/room2';
+        const LOBBY_3 = LOBBY_1 + '/room3';
 
         // ÜLKELERİNE GÖRE SIRALANMIŞ / GRUPLANMIŞ ÇOK SAYIDA ODA VERİSİ
         const roomsData = [
             { id: 101, lobby: LOBBY_1, name: "🇹🇷 SeulBall Arena #1 [KARIŞIK TAKIM]", host: "Burak_Arena", mode: "Karışık Takım", players: 0, maxPlayers: 10, ping: 13, countryCode: "tr" },
             { id: 102, lobby: LOBBY_2, name: "🇹🇷 Anadolu Arena Karışık Maç", host: "Kerem_Ist", mode: "Karışık Takım", players: 0, maxPlayers: 10, ping: 21, countryCode: "tr" },
+            { id: 103, lobby: LOBBY_3, name: "🇹🇷 Pas Odası [KOLAY MOD]", host: "Zeynep_Arena", mode: "Pas Oyunu", players: 0, maxPlayers: 6, ping: 17, countryCode: "tr" },
 
             // --- TÜRKİYE (TR) ---
             { id: 1, name: "🇹🇷 Türkiye Official #1 [KLASİK 3v3]", host: "AhmetPro34", mode: "3v3 Klasik", players: 5, maxPlayers: 6, ping: 14, countryCode: "tr" },
@@ -301,7 +303,7 @@
             const room = roomsData.find(r => r.id === id);
             if (!room || !room.lobby) { showToast('Bu oda şu an erişilemiyor (dolu / bakımda).'); return; }
             showToast('Odaya bağlanılıyor...');
-            const target = room.lobby === LOBBY_2 ? 'game.html?room=2' : 'game.html';
+            const target = room.lobby === LOBBY_3 ? 'game.html?room=3' : (room.lobby === LOBBY_2 ? 'game.html?room=2' : 'game.html');
             setTimeout(() => { window.location.href = target; }, 500);
         }
 
