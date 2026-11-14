@@ -341,6 +341,34 @@
         #spec-toggle.on { border-color:#22c55e; color:#86efac; }
         body.research-mode #spec-toggle { display:none !important; }
 
+        /* ==================== PAS ODASI ==================== */
+        #pas-root { display:none; }
+        body.pas-mode #pas-root { display:block; position:fixed; inset:0; z-index:20; background:radial-gradient(ellipse at 50% 45%, #14233b 0%, #0a1322 62%, #060b14 100%); }
+        body.research-mode #pas-root { display:none !important; }
+        body.pas-mode #pitch-wrap, body.pas-mode #score-badge, body.pas-mode #hamburger-btn, body.pas-mode #touch-controls, body.pas-mode #controls-hint,
+        body.pas-mode #role-badge, body.pas-mode #spec-toggle, body.pas-mode #net-badge, body.pas-mode #chat-overlay, body.pas-mode #chat-toggle,
+        body.pas-mode #break-banner, body.pas-mode #restart-banner, body.pas-mode #rotate-hint { display:none !important; }
+        #pas-stage { position:absolute; left:0; right:0; top:60px; bottom:0; }
+        .pas-seat { position:absolute; transform:translate(-50%,-50%); text-align:center; cursor:default; user-select:none; -webkit-tap-highlight-color:transparent; }
+        .pas-av { position:relative; width:68px; height:68px; border-radius:50%; margin:0 auto; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:800; color:#fff;
+            border:3px solid rgba(255,255,255,.22); box-shadow:0 6px 18px rgba(0,0,0,.5); transition:transform .15s ease, box-shadow .2s ease, border-color .2s ease; }
+        .pas-name { margin-top:6px; font-size:13px; font-weight:700; color:#cbd5e1; text-shadow:0 1px 3px #000; }
+        .pas-seat.holder .pas-av { border-color:#fbbf24; box-shadow:0 0 0 4px rgba(251,191,36,.25), 0 6px 18px rgba(0,0,0,.5); }
+        .pas-seat.target { cursor:pointer; } .pas-seat.target .pas-av { border-color:#86efac; animation:pasPulse 1.2s ease-in-out infinite; }
+        .pas-seat.target:hover .pas-av { transform:scale(1.1); }
+        .pas-num { position:absolute; right:-6px; top:-6px; min-width:22px; height:22px; border-radius:11px; background:#22c55e; color:#04210f; font-size:12px; font-style:normal; font-weight:900; display:none; align-items:center; justify-content:center; }
+        .pas-seat.target .pas-num { display:flex; }
+        .pas-lock { position:absolute; right:-6px; top:-6px; font-style:normal; font-size:15px; display:none; }
+        .pas-seat.locked .pas-lock { display:block; } .pas-seat.locked .pas-av { opacity:.45; }
+        .pas-seat.shake .pas-av { animation:pasShake .35s ease; }
+        @keyframes pasPulse { 0%,100% { box-shadow:0 0 0 0 rgba(134,239,172,.5), 0 6px 18px rgba(0,0,0,.5); } 50% { box-shadow:0 0 0 9px rgba(134,239,172,0), 0 6px 18px rgba(0,0,0,.5); } }
+        @keyframes pasShake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-6px); } 75% { transform:translateX(6px); } }
+        #pas-ball { position:absolute; left:0; top:0; width:34px; height:34px; border-radius:50%; z-index:3; pointer-events:none; display:none;
+            background:radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e8f0 55%, #94a3b8 100%); box-shadow:0 4px 10px rgba(0,0,0,.55); }
+        #pas-msg { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:16px; font-weight:700; color:#cbd5e1; text-align:center; padding:0 24px; display:none; }
+        #pas-cue { position:absolute; left:50%; top:74px; transform:translateX(-50%); font-size:11px; font-weight:800; padding:4px 12px; border-radius:7px; background:rgba(2,6,10,.7); border:1.5px dashed rgba(148,163,184,.5); color:#cbd5e1; display:none; white-space:nowrap; }
+        #pas-hint { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); font-size:12px; font-weight:700; color:#86efac; display:none; text-align:center; padding:0 16px; }
+
         /* ==================== NİŞAN OKU ==================== */
         .aim-arrow { position:absolute; width:0; height:0; z-index:14; pointer-events:none; display:none; transform-origin:0 0; }
         .aim-arrow svg { position:absolute; left:19px; top:-10px; overflow:visible; filter:drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
@@ -508,6 +536,14 @@
         </div>
     </div>
 
+    <!-- PAS ODASI (room=3): hareketsiz, sıra tabanlı top atma oyunu -->
+    <div id="pas-root">
+        <div id="pas-stage"></div>
+        <div id="pas-msg"></div>
+        <div id="pas-cue"></div>
+        <div id="pas-hint"></div>
+    </div>
+
     <div id="research-panel" class="research-panel hidden">
         <div class="rp-head">
             <div class="rp-head-title"><i class="fa-solid fa-flask"></i>ARAŞTIRMACI PANELİ</div>
@@ -523,6 +559,27 @@
             <select id="rp-participant-select"><option value="">— oyuncu seç —</option></select>
             <button onclick="rpSetParticipant()"><i class="fa-solid fa-check"></i> Denek Olarak Ata</button>
             <div id="rp-participant-info" class="rp-hint">Denek atanmadı.</div>
+        </div>
+
+        <div class="rp-section" id="rp-pas-section" style="display:none">
+            <label><i class="fa-solid fa-circle-nodes"></i> Pas Odası Kontrolü</label>
+            <div class="rp-btn-row">
+                <button onclick="rpPasCfg({ run: true })">▶ Başlat</button>
+                <button onclick="rpPasCfg({ run: false })">⏹ Durdur</button>
+                <button onclick="rpPasRestart()">↻ Baştan</button>
+            </div>
+            <select id="rp-pas-ex">
+                <option value="auto">Otomatik: ilk N atıştan sonra katılımcıya atılmasın</option>
+                <option value="on">Katılımcıya atılmasın (şimdi)</option>
+                <option value="off">Herkese eşit atılsın</option>
+            </select>
+            <div class="rp-btn-row" style="align-items:center">
+                <span class="rp-hint" style="margin:0">N:</span><input id="rp-pas-after" type="number" min="0" max="60" value="8" style="width:60px">
+                <span class="rp-hint" style="margin:0">Süre (sn):</span><input id="rp-pas-dur" type="number" min="30" max="1800" value="300" style="width:70px">
+                <button onclick="rpPasApply()">Uygula</button>
+            </div>
+            <div id="rp-pas-info" class="rp-hint">Ayar bekleniyor…</div>
+            <div class="rp-hint">Faz 1 = katılımcıya atılmaz, Faz 3 = herkese eşit (faz düğmeleri bu ayarı da değiştirir). Oyun, ≥3 gerçek oyuncu varken ya da "Başlat" ile başlar; eksik oturaklar botla dolar.</div>
         </div>
 
         <div class="rp-section">
@@ -1753,7 +1810,10 @@
         // çizer. Host çıkarsa sıradaki en eski oyuncu otomatik devralır.
         const BASE_LOBBY = window.SEULBALL_LOBBY || 'quickmatch';
         // ?room=2 -> ikinci oda: ana lobinin ALT yolu (quickmatch/room2) — mevcut Firebase kuralları geçerli kalır, oyuncular/maç/sohbet ayrı
-        const LOBBY = new URLSearchParams(location.search).get('room') === '2' ? BASE_LOBBY + '/room2' : BASE_LOBBY;
+        // ?room=3 -> PAS ODASI: hareket gerektirmeyen, sıra tabanlı basit top atma oyunu (aynı altyapı: oda listesi, host, araştırma paneli)
+        const ROOM_Q = new URLSearchParams(location.search).get('room');
+        const PAS_MODE = ROOM_Q === '3';
+        const LOBBY = ROOM_Q === '2' ? BASE_LOBBY + '/room2' : (PAS_MODE ? BASE_LOBBY + '/room3' : BASE_LOBBY);
         let db = null, myUid = null, netError = null;
         let isHost = false, hostUid = null;
         // Otomatik en iyi host: her oyuncu bağlantı kalitesini (RTT + kare süresi) yayınlar, host bağlantısı
@@ -1871,7 +1931,7 @@
             let show = true;
             if (netError) { title.textContent = 'BAĞLANTI HATASI'; sub.textContent = netError; }
             else if (!db || !myUid || !humanPlayer) { title.textContent = 'BAĞLANILIYOR'; sub.textContent = 'Sunucuya bağlanılıyor...'; }
-            else if (phase === 'training') show = false;
+            else if (PAS_MODE || phase === 'training') show = false;
             else if (n < 2) { title.textContent = 'RAKİP BEKLENİYOR'; sub.textContent = `Odada ${n} kişi · başlamak için en az 2 kişi gerekli`; }
             else if (phase === 'ended') { title.textContent = 'MAÇ BİTTİ!'; sub.textContent = `Herkes izleyicide · yeni takımlar ${endCd > 0 ? endCd + ' saniye içinde' : 'kuruluyor'}`; }
             else if (phase === 'waiting') { title.textContent = 'MAÇ HAZIRLANIYOR'; sub.textContent = 'Takımlar kuruluyor...'; }
@@ -1961,6 +2021,7 @@
 
         // ---- HOST: eşleştirme + maç yönetimi ----
         function hostEvaluateMatch() {
+            if (PAS_MODE) { pasHostEvaluate(); return; }
             const all = Object.values(netPlayers);
             if (!all.length) { Object.keys(graceUntil).forEach(k => delete graceUntil[k]); if (phase !== 'waiting' || gameData.isMatchStarted) toWaiting(); return; }
             if (phase === 'ended') return; // geri sayım bitince kendisi başlatır
@@ -2180,6 +2241,7 @@
                 co: !!gameData.rulesCornerOut,
                 rt: gameData.restart ? { k: gameData.restart.kind, t: gameData.restart.team } : null
             };
+            if (PAS_MODE) st.pz = pasPublic();
             broadcastState(st);
         }
 
@@ -2210,8 +2272,9 @@
                 gameData.ball._px = gameData.ball.x; gameData.ball._py = gameData.ball.y;
             } else { phase = 'waiting'; gameData.isMatchStarted = false; }
             physicsAccumulatorMs = 0;
+            if (PAS_MODE) pasAttachHost();
         }
-        function loseHost() { hostCloseAllPeers(); if (inputsRef) { inputsRef.off(); inputsRef = null; } lastSentKeys = ''; lastSentAim = null; predHist.length = 0; predAcc = 0; }
+        function loseHost() { pasDetachHost(); hostCloseAllPeers(); if (inputsRef) { inputsRef.off(); inputsRef = null; } lastSentKeys = ''; lastSentAim = null; predHist.length = 0; predAcc = 0; }
 
         // ---- HERKES: oda listesi / durum dinleyicileri ----
         function onRosterChange(obj) {
@@ -2264,6 +2327,7 @@
         function onStateSnapshot(st) {
             lastState = st;
             if (!st || isHost) return;
+            if (PAS_MODE) { pasOnState(st.pz); return; }
             phase = st.ph || 'waiting'; endCd = st.cd || 0;
             const tr = st.tr || [], tb = st.tb || [];
             const changed = st.id !== matchId || tr.join() !== currentTeams.red.join() || tb.join() !== currentTeams.blue.join();
@@ -2313,7 +2377,7 @@
         // bağlantıyı kurmak (signaling), oda listesi ve sohbet için kalır.
         // Bağlanamayan oyuncular (sıkı NAT / bazı mobil hatlar) otomatik olarak eski Firebase yoluyla oynamaya devam eder.
         // Kapatmak için: P2P_ENABLED = false
-        const P2P_ENABLED = true;
+        const P2P_ENABLED = !PAS_MODE;      // pas odası seyrek, sıra tabanlı: P2P gerekmez
         const RTC_PATH = BASE_LOBBY + '_rtc/' + (LOBBY === BASE_LOBBY ? 'main' : 'room2');
         const RTC_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
         const peers = {};                         // HOST: uid -> { pc, dc, open, born, lastRx, tries, cid, ... }
@@ -2477,6 +2541,261 @@
             onStateSnapshot(st);
         }
 
+        // ==================== PAS ODASI (room=3) ====================
+        // Hareket yok: topu tutan oyuncu başka bir oyuncuya dokunarak/tuşla atar. Sıra tabanlı olduğu için gecikme/beceri
+        // sonucu etkilemez; "top bana neden gelmiyor" sorusunun tek açıklaması diğer oyuncuların seçimi olur.
+        // Host otoritedir: oyuncu eksikse bot oturaklar doldurur, atışları yönetir, araştırma panelinin ayarına uyar.
+        // Ayarlar (araştırma panelinden): meta/pasCfg = { ex: 'auto'|'on'|'off', after: N, run: true|false|yok, dur: sn, rs: sayaç }
+        // Katılımcı: meta/participantUid (mevcut "Denek ata" düğmesi). Olaylar: 'touch' (alıcı) -> panelin "top payı %" ölçümü.
+        const PAS_MIN_SEATS = 3, PAS_MAX_SEATS = 5;
+        const PAS_AUTOSTART = new URLSearchParams(location.search).get('autostart') === '1';
+        const PAS_BOT_NAMES = ['Elif', 'Zeynep', 'Merve', 'Ayşe', 'Burak', 'Emre', 'Can', 'Deniz', 'Selin', 'Mert', 'Ece', 'Kaan', 'Defne', 'Onur'];
+        const pas = { run: false, over: false, seats: [], hold: '', ball: null, seq: 0, throws: 0, t0: 0, rs: -1, idleTimer: null, catchTimer: null, endTimer: null };
+        let pasCfg = { ex: 'auto', after: 8, run: null, dur: 300, rs: 0 };
+        let pasParticipant = null, pasIntentRef = null, pasCfgRef = null, pasPartRef = null;
+        const pasLastIntent = {};
+        let pasView = { run: false, over: false, seats: [], hold: '', ball: null, ex: false, pu: '', thr: 0, seq: 0 };
+        let pasAnimSeq = 0, pasAnim = null, pasPending = false, pasRenderedKey = '';
+
+        // ----- HOST -----
+        function pasSeat(id) { return pas.seats.find(x => x.id === id) || null; }
+        function pasReal() { return Object.values(netPlayers).sort((a, b) => (a.joinedAt - b.joinedAt) || (a.uid < b.uid ? -1 : 1)); }
+        function pasExNow() {
+            if (!pasParticipant) return false;
+            return pasCfg.ex === 'on' || (pasCfg.ex === 'auto' && pas.throws >= (Number(pasCfg.after) || 0));
+        }
+        function pasPublic() {
+            return { v: 1, run: pas.run, over: pas.over, seats: pas.seats.map(x => ({ i: x.id, n: x.name })), hold: pas.hold, ball: pas.ball,
+                     ex: pasExNow(), pu: pasParticipant || '', thr: pas.throws, seq: pas.seq };
+        }
+        function pasPush() { pasView = pasPublic(); pasRender(); pushState(); }
+        function pasAttachHost() {
+            pasDetachHost();
+            if (!db) return;
+            pasCfgRef = db.ref(`${LOBBY}/meta/pasCfg`);
+            pasCfgRef.on('value', sn => {
+                pasCfg = Object.assign({ ex: 'auto', after: 8, run: null, dur: 300, rs: 0 }, sn.val() || {});
+                if (pas.rs === -1) pas.rs = pasCfg.rs;
+                pasHostEvaluate();
+            }, () => {});
+            pasPartRef = db.ref(`${LOBBY}/meta/participantUid`);
+            pasPartRef.on('value', sn => { pasParticipant = sn.val() || null; pasHostEvaluate(); }, () => {});
+            pasIntentRef = db.ref(`${LOBBY}/pasIntent`);
+            const onIntent = sn => {
+                const v = sn.val(); if (!v) return;
+                const last = pasLastIntent[sn.key];
+                if (v.n && last !== undefined && v.n <= last) return;
+                pasLastIntent[sn.key] = v.n;
+                if (!v.ts || Math.abs((Date.now() + serverOffset) - v.ts) > 20000) return;      // eski/kalıntı niyet
+                pasThrow(sn.key, v.to);
+            };
+            pasIntentRef.on('child_added', onIntent, () => {});
+            pasIntentRef.on('child_changed', onIntent, () => {});
+            // önceki host'tan devral
+            const pz = lastState && lastState.pz;
+            if (pz && pz.over) { pas.over = true; pas.run = false; }
+            else if (pz && pz.run) {
+                pas.seats = (pz.seats || []).map(x => { const uid = String(x.i).indexOf('bot') === 0 ? null : x.i; return { id: x.i, name: x.n, uid, bot: !uid || !netPlayers[uid] }; });
+                pas.run = true; pas.throws = pz.thr || 0; pas.seq = pz.seq || 0; pas.t0 = Date.now();
+                pas.hold = pz.ball ? pz.ball.t : (pz.hold || '');
+                pas.ball = null;
+                clearTimeout(pas.endTimer); pas.endTimer = setTimeout(pasFinish, Math.max(10, Number(pasCfg.dur) || 300) * 1000);
+            }
+        }
+        function pasDetachHost() {
+            [pasCfgRef, pasPartRef, pasIntentRef].forEach(r => { try { r && r.off(); } catch (e) {} });
+            pasCfgRef = pasPartRef = pasIntentRef = null;
+            clearTimeout(pas.idleTimer); clearTimeout(pas.catchTimer); clearTimeout(pas.endTimer);
+            pas.idleTimer = pas.catchTimer = pas.endTimer = null;
+        }
+        function pasHostEvaluate() {
+            if (!isHost || !db) return;
+            if (pasCfg.rs !== pas.rs) { pas.rs = pasCfg.rs; pasStop(true); }
+            const real = pasReal();
+            const shouldRun = real.length > 0 && !pas.over && (pasCfg.run === true || (pasCfg.run == null && (real.length >= PAS_MIN_SEATS || PAS_AUTOSTART)));
+            if (shouldRun && !pas.run) pasStart(real);
+            else if (!shouldRun && pas.run && !pas.over) pasStop(false);
+            if (pas.run) pasSyncSeats(real);
+            pasKick();
+            pasPush();
+        }
+        function pasStart(real) {
+            pas.run = true; pas.over = false; pas.throws = 0; pas.seq = 0; pas.ball = null; pas.t0 = Date.now(); matchElapsedMs = 0;
+            const seats = real.slice(0, PAS_MAX_SEATS).map(p => ({ id: p.uid, name: p.name, uid: p.uid, bot: false }));
+            const pool = PAS_BOT_NAMES.filter(n => !seats.some(x => x.name === n)).sort(() => Math.random() - 0.5);
+            for (let b = 1; seats.length < PAS_MIN_SEATS; b++) seats.push({ id: 'bot' + b, name: pool[b - 1] || ('Oyuncu' + b), uid: null, bot: true });
+            pas.seats = seats;
+            const starters = seats.filter(x => x.uid !== pasParticipant);
+            const pickFrom = starters.length ? starters : seats;
+            pas.hold = pickFrom[Math.floor(Math.random() * pickFrom.length)].id;
+            clearTimeout(pas.endTimer); pas.endTimer = setTimeout(pasFinish, Math.max(10, Number(pasCfg.dur) || 300) * 1000);
+            logEvent('pas_start', { name: 'Pas oyunu başladı', detail: seats.map(x => x.name).join(' / ') });
+        }
+        function pasStop(reset) {
+            clearTimeout(pas.idleTimer); clearTimeout(pas.catchTimer); clearTimeout(pas.endTimer);
+            pas.idleTimer = pas.catchTimer = pas.endTimer = null;
+            pas.run = false; pas.ball = null; pas.hold = '';
+            if (reset) { pas.over = false; pas.throws = 0; pas.seats = []; pas.seq = 0; }
+        }
+        function pasFinish() {
+            if (!isHost || pas.over) return;
+            clearTimeout(pas.idleTimer); clearTimeout(pas.catchTimer);
+            const wasFlying = !!pas.ball; pas.ball = null;
+            pas.over = true; pas.run = false; pas.hold = '';
+            logEvent('pas_end', { name: 'Oyun tamamlandı', detail: `${pas.throws} atış${wasFlying ? ' (son atış yarım kaldı)' : ''}` });
+            pasPush();
+        }
+        function pasSyncSeats(real) {
+            pas.seats.forEach(x => { if (x.uid) { const pl = netPlayers[x.uid]; x.bot = !pl; if (pl) x.name = pl.name; } });
+            if (pas.throws === 0 && !pas.ball) {      // oyun daha başlamadıysa geç gelenler bot oturakların yerine geçer
+                real.forEach(pl => {
+                    if (pas.seats.some(x => x.uid === pl.uid)) return;
+                    const entry = { id: pl.uid, name: pl.name, uid: pl.uid, bot: false };
+                    const bi = pas.seats.findIndex(x => !x.uid);
+                    if (bi >= 0) pas.seats[bi] = entry; else if (pas.seats.length < PAS_MAX_SEATS) pas.seats.push(entry);
+                });
+                if (pas.hold && !pasSeat(pas.hold)) pas.hold = pas.seats.length ? pas.seats[0].id : '';
+            }
+        }
+        function pasKick() {
+            if (!pas.run || pas.over || pas.ball || !pas.hold) { clearTimeout(pas.idleTimer); pas.idleTimer = null; pas.kickKey = ''; return; }
+            const seat = pasSeat(pas.hold);
+            if (!seat) return;
+            const kk = pas.hold + '#' + pas.seq;
+            if (pas.idleTimer && pas.kickKey === kk) return;          // aynı tutuş için zamanlayıcı zaten kurulu (sık çağrılarda sıfırlanmasın)
+            pas.kickKey = kk; clearTimeout(pas.idleTimer);
+            const delay = seat.bot ? 900 + Math.random() * 1300 : 9000;   // gerçek oyuncu 9 sn atmazsa otomatik atılır (oyun takılmasın)
+            pas.idleTimer = setTimeout(() => {
+                pas.idleTimer = null; pas.kickKey = '';
+                const s = pasSeat(pas.hold); if (!s || pas.ball) return;
+                const t = pasPick(s); if (t) pasThrow(s.id, t.id);
+            }, delay);
+        }
+        function pasPick(seat) {
+            let opts = pas.seats.filter(x => x.id !== seat.id);
+            if (pasExNow() && seat.uid !== pasParticipant) { const f = opts.filter(x => x.uid !== pasParticipant); if (f.length) opts = f; }
+            return opts.length ? opts[Math.floor(Math.random() * opts.length)] : null;
+        }
+        function pasThrow(fromId, toId) {
+            if (!isHost || !pas.run || pas.over || pas.ball || pas.hold !== fromId) return false;
+            const from = pasSeat(fromId), to = pasSeat(toId);
+            if (!from || !to || from === to) return false;
+            const ex = pasExNow();
+            if (ex && from.uid !== pasParticipant && to.uid === pasParticipant) return false;   // yönerge: dışlama aktifken katılımcıya atılamaz
+            clearTimeout(pas.idleTimer);
+            pas.throws++; matchElapsedMs = Date.now() - pas.t0;
+            const dur = 850 + Math.floor(Math.random() * 250);
+            pas.ball = { f: fromId, t: toId, s: ++pas.seq, d: dur }; pas.hold = '';
+            clearTimeout(pas.catchTimer); pas.catchTimer = setTimeout(() => pasCatch(toId), dur);   // önce zamanlayıcı: kayıt hatası oyunu kilitlemesin
+            try { logEvent('pas_throw', { uid: from.id, name: from.name, team: 'red', to: to.name, toId: to.id, excl: ex, n: pas.throws, bot: !!from.bot }); } catch (e) {}
+            pasPush();
+            return true;
+        }
+        function pasCatch(toId) {
+            if (!isHost || !pas.ball || pas.over) return;
+            const s = pasSeat(toId);
+            pas.ball = null; pas.hold = toId; matchElapsedMs = Date.now() - pas.t0;
+            try { if (s) logEvent('touch', { uid: s.id, name: s.name, team: 'red', n: pas.throws }); } catch (e) {}   // araştırma panelinin "top payı" ölçümü bunu okur
+            pasPush(); pasKick();
+        }
+
+        // ----- HERKES: görünüm -----
+        function pasOnState(pz) { if (!pz) return; pasView = pz; pasRender(); }
+        function pasColor(id) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360; return `hsl(${h},55%,48%)`; }
+        function pasOthers() {
+            const seats = pasView.seats || [], mi = seats.findIndex(x => x.i === myUid);
+            return mi < 0 ? seats.slice() : seats.slice(mi + 1).concat(seats.slice(0, mi));
+        }
+        function pasLocked(toId) { return !!(pasView.ex && pasView.pu && toId === pasView.pu && myUid !== pasView.pu); }   // sadece "yönergeli" oyunculara (katılımcı olmayanlara) kilit görünür
+        function pasCanThrow() { return !!(pasView.run && !pasView.over && !pasView.ball && pasView.hold === myUid && !pasPending); }
+        function pasLayout() {
+            const seats = pasView.seats || [], mi = seats.findIndex(x => x.i === myUid), others = pasOthers();
+            const pos = {};
+            const n = seats.length, rx = 34, ry = 30, cy = 50;
+            const place = (id, deg) => { const r = deg * Math.PI / 180; pos[id] = { x: 50 + rx * Math.cos(r), y: cy + ry * Math.sin(r) }; };
+            if (mi >= 0) { place(seats[mi].i, 90); others.forEach((x, k) => place(x.i, 90 + (k + 1) * 360 / n)); }
+            else seats.forEach((x, k) => place(x.i, 90 + k * 360 / Math.max(1, n)));
+            return pos;
+        }
+        function pasRestPx(id, stage, pos) {
+            const w = stage.clientWidth, h = stage.clientHeight, p = pos[id]; if (!p) return null;
+            const cx = p.x / 100 * w, cyy = p.y / 100 * h, dx = w / 2 - cx, dy = h / 2 - cyy, len = Math.hypot(dx, dy) || 1;
+            return { x: cx + dx / len * 52 - 17, y: cyy + dy / len * 52 - 17 };
+        }
+        function pasRender() {
+            const root = document.getElementById('pas-root');
+            if (!PAS_MODE || !root || !db || !myUid) return;
+            const stage = document.getElementById('pas-stage'), msg = document.getElementById('pas-msg'), cue = document.getElementById('pas-cue'), hint = document.getElementById('pas-hint');
+            const v = pasView, seated = (v.seats || []).some(x => x.i === myUid);
+            msg.style.display = 'block';
+            if (v.over) msg.textContent = 'Oyun tamamlandı. Katıldığın için teşekkürler.';
+            else if (!v.run) msg.textContent = 'Diğer oyuncular bekleniyor…';
+            else if (!seated) msg.textContent = 'Bu oyunu izliyorsun.';
+            else msg.style.display = 'none';
+            cue.style.display = 'none'; hint.style.display = 'none';
+            if (v.run && seated && v.pu && myUid !== v.pu && !v.over) {        // yönerge ipucu: sadece katılımcı OLMAYAN (gerçek) oyunculara
+                cue.style.display = 'block';
+                cue.textContent = v.ex ? '🔒 Yönerge: şu an katılımcıya top atmayın' : 'Yönerge: topu herkese eşit dağıtın';
+            }
+            // oturaklar
+            const pos = pasLayout(), key = (v.seats || []).map(x => x.i + ':' + x.n).join('|') + '#' + stage.clientWidth + 'x' + stage.clientHeight;
+            if (key !== pasRenderedKey) {
+                pasRenderedKey = key;
+                Array.from(stage.querySelectorAll('.pas-seat')).forEach(e => e.remove());
+                (v.seats || []).forEach(x => {
+                    const el = document.createElement('div');
+                    el.className = 'pas-seat'; el.dataset.id = x.i;
+                    el.style.left = pos[x.i].x + '%'; el.style.top = pos[x.i].y + '%';
+                    el.innerHTML = `<div class="pas-av" style="background:${pasColor(x.i)}">${esc((x.n || '?').charAt(0).toUpperCase())}<i class="pas-num"></i><i class="pas-lock">🔒</i></div><div class="pas-name">${esc(x.i === myUid ? 'Sen' : x.n)}</div>`;
+                    el.addEventListener('click', () => pasClick(x.i));
+                    stage.appendChild(el);
+                });
+            }
+            const others = pasOthers(), canThrow = pasCanThrow();
+            stage.querySelectorAll('.pas-seat').forEach(el => {
+                const id = el.dataset.id, isOther = id !== myUid, k = others.findIndex(o => o.i === id);
+                el.classList.toggle('holder', v.hold === id);
+                el.classList.toggle('target', canThrow && isOther && !pasLocked(id));
+                el.classList.toggle('locked', canThrow && isOther && pasLocked(id));
+                const nm = el.querySelector('.pas-num'); nm.textContent = (canThrow && isOther && k >= 0) ? String(k + 1) : '';
+            });
+            hint.style.display = (canThrow && !v.over) ? 'block' : 'none';
+            hint.textContent = 'Topu birine at: bir oyuncuya dokun ya da tuşa bas (1-' + Math.max(1, others.length) + ')';
+            // top
+            let ball = document.getElementById('pas-ball');
+            if (!ball) { ball = document.createElement('div'); ball.id = 'pas-ball'; stage.appendChild(ball); }
+            ball.style.display = (v.run && !v.over && (v.hold || v.ball)) ? 'block' : 'none';
+            if (v.ball && v.ball.s !== pasAnimSeq) {
+                pasAnimSeq = v.ball.s; pasPending = false;
+                const a = pasRestPx(v.ball.f, stage, pos), b = pasRestPx(v.ball.t, stage, pos);
+                if (a && b) {
+                    if (pasAnim) { try { pasAnim.cancel(); } catch (e) {} }
+                    ball.style.transform = `translate(${a.x}px,${a.y}px)`;
+                    pasAnim = ball.animate([{ transform: `translate(${a.x}px,${a.y}px)` },
+                        { transform: `translate(${(a.x + b.x) / 2}px,${(a.y + b.y) / 2 - 46}px)`, offset: 0.5 },
+                        { transform: `translate(${b.x}px,${b.y}px)` }], { duration: v.ball.d, easing: 'cubic-bezier(.3,.1,.3,1)', fill: 'forwards' });
+                    const fin = b; pasAnim.onfinish = () => { ball.style.transform = `translate(${fin.x}px,${fin.y}px)`; try { pasAnim.cancel(); } catch (e) {} pasAnim = null; };
+                }
+            } else if (!v.ball && v.hold && !(pasAnim && pasAnim.playState === 'running')) {
+                const r = pasRestPx(v.hold, stage, pos); if (r) ball.style.transform = `translate(${r.x}px,${r.y}px)`;
+                pasPending = false;
+            }
+        }
+        function pasClick(toId) {
+            if (!PAS_MODE || toId === myUid || !pasCanThrow()) return;
+            if (pasLocked(toId)) { const el = document.querySelector(`.pas-seat[data-id="${toId}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } return; }
+            if (isHost) { pasThrow(myUid, toId); return; }
+            pasPending = true;
+            db.ref(`${LOBBY}/pasIntent/${myUid}`).set({ to: toId, n: nextN(), ts: Date.now() + serverOffset }).catch(() => { pasPending = false; pasRender(); });
+            pasRender();
+        }
+        window.addEventListener('keydown', e => {
+            if (!PAS_MODE || !/^Digit[1-9]$/.test(e.code) || !pasCanThrow()) return;
+            const o = pasOthers()[Number(e.code.slice(5)) - 1];
+            if (o) pasClick(o.i);
+        });
+        window.addEventListener('resize', () => { if (PAS_MODE) { pasRenderedKey = ''; pasRender(); } });
+
         // ---- OTOMATİK HOST DEVRİ ----
         // Skor: düşük = iyi. RTT + (30 fps altı kare süresi cezası). Devir için host KÖTÜ olmalı (>110) ve aday belirgin iyi olmalı;
         // 3 ardışık ölçümde (15 sn) doğrulanmalı ve devirler arası en az 90 sn olmalı (ping-pong olmasın).
@@ -2508,7 +2827,7 @@
             db.ref(`${LOBBY}/inputs/${myUid}`).set({ w: keys.w, a: keys.a, s: keys.s, d: keys.d, sp: keys.spaceSeq, ma: lastSentAim, n: nextN() });
         }
         setInterval(() => {
-            if (!db || !myUid || isHost) return;
+            if (!db || !myUid || isHost || PAS_MODE) return;
             const k = `${+keys.w}${+keys.a}${+keys.s}${+keys.d}|${keys.spaceSeq}`;
             const now = performance.now();
             if (guestUsingDc()) {
@@ -2702,6 +3021,15 @@
                 db.ref(`${LOBBY}/eventlog`).limitToLast(500).on('child_added', s => rpAddLogRow('event', s.val()), e => rpWriteError('Olay logu okunamadı', e));
                 db.ref(`${LOBBY}/chat`).limitToLast(300).on('child_added', s => rpAddLogRow('chat', s.val()), e => rpWriteError('Sohbet okunamadı', e));
                 db.ref(`${LOBBY}/meta/participantUid`).on('value', s => { rpParticipantUid = s.val() || null; rpRenderMeta(); }, e => rpWriteError('Denek bilgisi okunamadı', e));
+                if (PAS_MODE) {
+                    document.getElementById('rp-pas-section').style.display = 'block';
+                    db.ref(`${LOBBY}/meta/pasCfg`).on('value', s => {
+                        const c = s.val() || {};
+                        const exTxt = { auto: 'otomatik', on: 'katılımcıya atılmıyor', off: 'herkese eşit' }[c.ex || 'auto'];
+                        const runTxt = c.run === true ? 'çalışıyor (elle)' : (c.run === false ? 'durduruldu' : 'otomatik (≥3 oyuncu)');
+                        document.getElementById('rp-pas-info').textContent = `Şu an: ${runTxt} · mod: ${exTxt} · N=${c.after != null ? c.after : 8} · süre ${c.dur || 300} sn`;
+                    }, () => {});
+                }
             }).catch(e => rpSetConnStatus('err', 'Giriş yapılamadı: ' + (e.code || e.message)));
             setInterval(() => {
                 const el = document.getElementById('rp-last-touch');
@@ -2751,17 +3079,27 @@
             if (!pctEl) return;
             if (!rpParticipantUid) { pctEl.textContent = '—'; fillEl.style.width = '0%'; subEl.textContent = 'Önce denek ata.'; return; }
             const mine = (rpTouchStats[rpParticipantUid] || { count: 0 }).count;
-            const teamTotal = rpParticipantTeam ? (rpTeamTouchTotals[rpParticipantTeam] || 0) : 0;
+            const ptm = rpParticipantTeam || (PAS_MODE ? 'red' : null);
+            const teamTotal = ptm ? (rpTeamTouchTotals[ptm] || 0) : 0;
             if (!teamTotal) { pctEl.textContent = '—'; fillEl.style.width = '0%'; subEl.textContent = 'Henüz temas verisi yok.'; return; }
             const pct = Math.round((mine / teamTotal) * 100);
             pctEl.textContent = `%${pct}`;
             fillEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
-            subEl.textContent = `${mine} / ${teamTotal} temas · takım: ${rpParticipantTeam === 'red' ? 'Kırmızı' : 'Mavi'}`;
+            subEl.textContent = PAS_MODE ? `${mine} / ${teamTotal} alış (pas oyunu)` : `${mine} / ${teamTotal} temas · takım: ${ptm === 'red' ? 'Kırmızı' : 'Mavi'}`;
         }
+        function rpPasCfg(patch) {
+            if (!db || !rpReady) { alert('Henüz bağlantı hazır değil.'); return; }
+            db.ref(`${LOBBY}/meta/pasCfg`).update(patch).catch(e => rpWriteError('Pas ayarı', e));
+        }
+        function rpPasApply() {
+            rpPasCfg({ ex: document.getElementById('rp-pas-ex').value, after: Math.max(0, Number(document.getElementById('rp-pas-after').value) || 0), dur: Math.max(30, Number(document.getElementById('rp-pas-dur').value) || 300) });
+        }
+        function rpPasRestart() { if (confirm('Oyun baştan kurulsun mu? (oturaklar yeniden dağıtılır, atış sayacı sıfırlanır)')) rpPasCfg({ rs: Date.now() }); }
         let rpCurrentPhase = null, rpPhaseStartTs = 0;
         const rpPhaseLabels = { 1: 'Faz 1 (Dışlanma)', 2: 'Faz 2 (Dikkat dağıtma)', 3: 'Faz 3 (Geri dönüş)' };
         function rpStartPhase(n) {
             if (!db || !rpReady) { alert('Henüz bağlantı hazır değil.'); return; }
+            if (PAS_MODE && (n === 1 || n === 3)) rpPasCfg({ ex: n === 1 ? 'on' : 'off' });   // pas odasında faz = dışlama/dahil etme anahtarı
             if (rpCurrentPhase && rpCurrentPhase !== n) rpEndPhase(true); // önceki faz kapatılmadan yenisi başlarsa otomatik kapat
             rpCurrentPhase = n; rpPhaseStartTs = Date.now();
             db.ref(`${LOBBY}/eventlog`).push({ type: 'phase_mark', name: rpPhaseLabels[n] + ' BAŞLADI', phaseNum: n, t: firebase.database.ServerValue.TIMESTAMP }).catch(e => rpWriteError('Faz işareti', e));
@@ -3122,6 +3460,7 @@
         }
 
         // İLK YÜKLEME
+        if (PAS_MODE) document.body.classList.add('pas-mode');
         updatePanels();
         ensureEntityNodes();
         centerCircleEl = document.querySelector('.pitch-center-circle');
@@ -3134,7 +3473,7 @@
             document.getElementById('research-panel').classList.remove('hidden');
             initResearchPanel();
         } else {
-            runWelcomeSequence();
+            if (!PAS_MODE) runWelcomeSequence();
             if (!needName) initNetwork();
         }
     </script>
